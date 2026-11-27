@@ -22,7 +22,7 @@ Fixes for the first reports from a gaming PC:
 - **Back to start** returns from a result or a rejected frame to the start screen.
 - The "On the screen" view now works after a capture.
 
-This is a pre-release. The desktop app has had little testing on Windows so far, so expect rough
+This is an early version. The desktop app has had little testing on Windows so far, so expect rough
 edges and please report what you see.
 
 ## Run without installing
