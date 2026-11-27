@@ -1,6 +1,7 @@
 import { findCheck, pixelsOf, readRgba, replan } from './core'
 import { desktop } from './desktop'
 import { $ } from './dom'
+import { paintFloat } from './float'
 import { render, renderRejected, ruleFinding, status, type Hooks } from './render'
 import { planOptions, remembered, shownRoute, state } from './state'
 import { settled, type FrameInfo, type Outcome, type Response, type Route, type RuleCheck } from './types'
@@ -20,6 +21,7 @@ const hooks: Hooks = {
 
 export function redraw(animate: boolean): void {
   render(animate, hooks)
+  paintFloat()
 }
 
 /** Sends what the window shows to the overlay over the game. */
@@ -47,16 +49,26 @@ export function followed(route: Route, replanned: boolean): void {
   redraw(false)
 }
 
+/** Reads a frame of pixels under the player's settings, showing nothing. */
+export async function readPixels(rgba: Uint8Array | Uint8ClampedArray, width: number, height: number): Promise<{ response: Response; elapsedMs: number }> {
+  const t = performance.now()
+  const response = await readRgba(rgba, width, height, { priority: state.priority, matcher: state.matcher, buffer_fallback: remembered.buffer })
+  return { response, elapsedMs: performance.now() - t }
+}
+
+/** Shows what a fresh read came to, with the rule check that stands in for the route when one is under way. */
+export async function showRead(response: Response, frame: FrameInfo): Promise<void> {
+  const check = response.status === 'ok' && state.checking ? await findCheck(response.reading, { matcher: state.matcher }) : null
+  show(response, frame, true, check)
+}
+
 export async function readBlob(blob: Blob, source: string): Promise<void> {
   stage.dataset.busy = 'true'
   try {
     const url = URL.createObjectURL(blob)
     const { rgba, width, height } = await pixelsOf(blob)
-    const t = performance.now()
-    const response = await readRgba(rgba, width, height, { priority: state.priority, matcher: state.matcher, buffer_fallback: remembered.buffer })
-    const elapsedMs = performance.now() - t
-    const check = response.status === 'ok' && state.checking ? await findCheck(response.reading, { matcher: state.matcher }) : null
-    show(response, { width, height, source, url, elapsedMs }, true, check)
+    const { response, elapsedMs } = await readPixels(rgba, width, height)
+    await showRead(response, { width, height, source, url, elapsedMs })
   } catch (e) {
     show({ status: 'error', message: e instanceof Error ? e.message : String(e) }, { width: 0, height: 0, source }, true)
   } finally {
@@ -88,6 +100,7 @@ export function show(response: Response, frame: FrameInfo, fresh: boolean, check
     state.rejection = response
     setStage('rejected')
     renderRejected(response, frame)
+    paintFloat()
   }
   publish(response, frame)
 }
@@ -111,6 +124,7 @@ export function home(): void {
   setStage('empty')
   status([['Status', 'No frame yet']])
   desktop?.clearOverlay()
+  paintFloat()
 }
 
 export async function planAgain(): Promise<void> {

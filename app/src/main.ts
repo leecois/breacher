@@ -11,6 +11,7 @@ import { warm } from './core'
 import { desktop } from './desktop'
 import { $ } from './dom'
 import { drawGhost } from './draw'
+import { startLive } from './live'
 import { showVersions, status } from './render'
 import { listSamples, loadSample } from './samples'
 import { previewShell, startShell } from './shell'
@@ -26,7 +27,9 @@ async function start(): Promise<void> {
   void listSamples()
   await startShell()
   const params = new URLSearchParams(location.search)
+  // the desktop controls can be shown in a browser to check their layout; otherwise a browser offers screen sharing
   if (!desktop && params.get('shell') === 'preview') previewShell()
+  else startLive()
   const sample = params.get('sample')
   if (params.get('view') === 'screen') state.view = 'screen'
   if (sample) await loadSample(sample, sample)

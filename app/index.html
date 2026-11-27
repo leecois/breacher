@@ -4,6 +4,9 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#07080c" />
+    <meta name="description" content="Reads a Breach Protocol screen from Cyberpunk 2077 and marks the picks that upload the most daemons. Works on a screenshot or on a shared game window, in the browser." />
+    <link rel="icon" type="image/png" href="./icon.png" />
     <title>Breacher</title>
   </head>
   <body>
@@ -13,6 +16,7 @@
       <div class="bar-actions">
         <button id="home" class="btn" hidden>Back to start</button>
         <button id="capture" class="btn primary" hidden>Capture game</button>
+        <button id="share" class="btn primary" hidden>Share the game screen</button>
         <button id="open" class="btn">Open screenshot</button>
         <input id="file" type="file" accept="image/*" hidden />
       </div>
@@ -43,6 +47,17 @@
       <button id="watch" class="btn small">Watch a screenshot folder</button>
     </section>
 
+    <section class="shell live" id="live" hidden aria-label="Screen sharing">
+      <video id="live-view" muted playsinline aria-label="What Breacher sees"></video>
+      <div class="live-text">
+        <p id="live-what"></p>
+        <p id="live-state" aria-live="polite"></p>
+      </div>
+      <label class="check"><input type="checkbox" id="live-auto" checked /><span class="box" aria-hidden="true"></span>Read each breach as it opens</label>
+      <button id="live-float" class="btn small" hidden>Float the route over the game</button>
+      <button id="live-stop" class="btn small">Stop sharing</button>
+    </section>
+
     <main id="stage" data-state="empty">
       <section class="empty" aria-labelledby="empty-title">
         <div class="empty-copy">
@@ -51,6 +66,7 @@
           <ul class="ways">
             <li id="way-capture" hidden>Open a breach in the game and press <kbd id="hotkey">Ctrl Shift B</kbd>.</li>
             <li id="way-watch" hidden>Take a screenshot in the game; Breacher reads new files in the watched folder.</li>
+            <li id="way-share" hidden>Share the game's window or its screen. Breacher reads each breach as it opens and counts off your picks.</li>
             <li>Drop a screenshot anywhere in this window.</li>
             <li>Paste one with <kbd>Ctrl V</kbd>.</li>
           </ul>

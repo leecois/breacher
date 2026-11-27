@@ -1,5 +1,5 @@
 // The reader and solver, compiled to WebAssembly. Bytes in, JSON out (see crates/breach-wasm).
-import type { PlanOptions, Reading, Response, RuleCheck } from './types'
+import type { Fate, Looked, Matcher, PlanOptions, Priority, Reading, Response, Route, RuleCheck } from './types'
 
 interface Exports {
   memory: WebAssembly.Memory
@@ -8,6 +8,7 @@ interface Exports {
   bp_read(rgba: number, width: number, height: number, opts: number, optsLen: number): number
   bp_plan(reading: number, readingLen: number, opts: number, optsLen: number): number
   bp_check(reading: number, readingLen: number, opts: number, optsLen: number): number
+  bp_follow(rgba: number, width: number, height: number, state: number, stateLen: number): number
 }
 
 let instance: Promise<Exports> | null = null
@@ -81,6 +82,34 @@ export async function findCheck(reading: Reading, opts: PlanOptions): Promise<Ru
   } finally {
     x.bp_free(r, rlen)
     x.bp_free(o, olen)
+  }
+}
+
+/** A breach being played, as the page keeps it between two looks. */
+export interface Following {
+  reading: Reading
+  /** The route the page shows. */
+  route: Route
+  check: boolean
+  wanted: boolean[] | null
+  buffer: number | null
+  played: number[]
+  fates: Fate[]
+  priority: Priority
+  matcher: Matcher | null
+}
+
+/** Look at a later frame of a screen read earlier: the picks made since, the daemons settled, the route that now fits. */
+export async function follow(rgba: Uint8Array | Uint8ClampedArray, width: number, height: number, state: Following): Promise<Looked | null> {
+  const x = await load()
+  const [p, len] = put(x, rgba)
+  const [s, slen] = put(x, encoder.encode(JSON.stringify(state)))
+  try {
+    const looked = take<Looked & { status: string }>(x, x.bp_follow(p, width, height, s, slen))
+    return looked.status === 'ok' ? looked : null
+  } finally {
+    x.bp_free(p, len)
+    x.bp_free(s, slen)
   }
 }
 

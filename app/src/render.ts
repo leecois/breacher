@@ -166,7 +166,7 @@ function act(label: string, run: () => void): HTMLButtonElement {
   return b
 }
 
-const daemonNames = (indices: number[]): string => {
+export const daemonNames = (indices: number[]): string => {
   const names = indices.map(i => String(i + 1))
   if (!names.length) return 'Nothing'
   return names.length === 1 ? `Daemon ${names[0]}` : `Daemons ${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`

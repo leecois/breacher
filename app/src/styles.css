@@ -351,6 +351,57 @@ kbd {
   color: var(--dim);
 }
 
+/* screen sharing in a browser: what is shared, what the page makes of it, and the way out */
+.live video {
+  width: 7.5rem;
+  aspect-ratio: 16 / 9;
+  object-fit: contain;
+  background: var(--void);
+  border: 1px solid var(--line-2);
+}
+
+.live-text {
+  flex: 1 1 18rem;
+  min-width: 0;
+}
+
+.live-text p {
+  margin: 0;
+}
+
+#live-what {
+  color: var(--dim);
+}
+
+#live-state {
+  color: var(--cyan);
+}
+
+/* the window that floats over the game holds the plan sheet and one line */
+body.floating {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  height: 100vh;
+  padding: 0.5rem;
+  overflow: hidden;
+}
+
+.floating #float-line {
+  margin: 0;
+  color: var(--cyan);
+  font: 600 1.05rem var(--display);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.floating #float-sheet {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+}
+
 #stage {
   grid-row: 3;
   min-height: 0;

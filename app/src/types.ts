@@ -90,6 +90,22 @@ export interface PlanOptions {
   buffer_fallback?: number
 }
 
+/** What the game has made of a daemon. */
+export type Fate = 'pending' | 'installed' | 'failed'
+
+/** What one look at a breach being played found. */
+export interface Looked {
+  sight: 'breach' | 'other' | 'over'
+  step: 'onward' | 'replanned' | null
+  /** Daemons settled since the look before, counted from one. */
+  settled: Array<[number, Fate]>
+  /** The route as it now stands. */
+  route: Route
+  /** Cells picked so far, in order. */
+  played: number[]
+  fates: Fate[]
+}
+
 /** What a capture is pointed at: the game found on its own, a window by its title, or a display. */
 export type Target = { kind: 'auto' } | { kind: 'window'; value: string } | { kind: 'display'; value: number }
 
