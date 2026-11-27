@@ -88,7 +88,7 @@ function make(): Desktop {
       void event.then(({ emitTo }) => emitTo('overlay', 'route', payload)).catch(() => undefined)
     },
     clearOverlay() {
-      void event.then(({ emitTo }) => emitTo('overlay', 'clear')).catch(() => undefined)
+      void core.then(({ invoke }) => invoke('dismiss_overlay')).catch(() => undefined)
     },
     async pauseHotkey() {
       const { invoke } = await core

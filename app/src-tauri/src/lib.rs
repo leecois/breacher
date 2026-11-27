@@ -1,5 +1,6 @@
 //! Desktop shell: a global hotkey that captures and reads the game, an overlay window over it, and a watched screenshot folder.
 
+mod follow;
 mod hotkey;
 mod update;
 
@@ -29,8 +30,10 @@ struct Settings {
     priority: Priority,
     /// Draw the route over the game after a hotkey capture.
     overlay: bool,
-    /// Seconds the overlay stays up.
+    /// Seconds the overlay stays up when the breach is not followed.
     overlay_seconds: u64,
+    /// Take the route down when the breach screen closes. `None` = wherever looking again goes unnoticed.
+    overlay_follow: Option<bool>,
     target: Target,
     watch_dir: Option<PathBuf>,
     /// The wrong-pick rule, once confirmed in game (docs/RULE-CHECK.md). `None` = play safe.
@@ -49,6 +52,7 @@ impl Default for Settings {
             priority: Priority::Count,
             overlay: true,
             overlay_seconds: 45,
+            overlay_follow: None,
             target: Target::Auto,
             watch_dir: None,
             matcher: None,
@@ -293,6 +297,8 @@ fn run_capture(app: &AppHandle) {
     };
     let (x, y, sw, sh, logical) =
         (cap.x, cap.y, cap.screen_width, cap.screen_height, cap.logical_units);
+    let follow = settings.overlay_follow.unwrap_or_else(breach_capture::recapture_is_quiet);
+    let again = cap.again.filter(|_| follow);
     log(
         &shell,
         &format!(
@@ -334,13 +340,60 @@ fn run_capture(app: &AppHandle) {
             "route",
             OverlayPayload { response: response.clone(), frame: meta, route },
         );
+        log(
+            &shell,
+            match &again {
+                Some(_) => "route drawn over the game, up until the breach screen closes",
+                None => "route drawn over the game, up for a fixed time",
+            },
+        );
         let app = app.clone();
-        std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_secs(settings.overlay_seconds.max(3)));
-            if app.state::<Shell>().generation.load(Ordering::SeqCst) == generation {
-                clear_overlay(&app);
+        std::thread::spawn(move || match again {
+            Some(game) => follow_breach(&app, &game, generation),
+            None => {
+                std::thread::sleep(Duration::from_secs(settings.overlay_seconds.max(3)));
+                if app.state::<Shell>().generation.load(Ordering::SeqCst) == generation {
+                    clear_overlay(&app);
+                }
             }
         });
+    }
+}
+
+/// Keeps the route up for as long as the breach screen is, and takes it down when the screen goes.
+fn follow_breach(app: &AppHandle, game: &breach_capture::Source, generation: u64) {
+    let shell = app.state::<Shell>();
+    let started = Instant::now();
+    let ours = || shell.generation.load(Ordering::SeqCst) == generation;
+    let why = follow::until_gone(|| {
+        std::thread::sleep(follow::INTERVAL);
+        if !ours() {
+            return None;
+        }
+        Some(match game.grab() {
+            Ok(cap) => {
+                let frame = Frame::new(
+                    cap.width as usize,
+                    cap.height as usize,
+                    PixelFormat::Rgba8,
+                    &cap.rgba,
+                );
+                if api::breach_on_screen(&frame) {
+                    follow::Look::Breach
+                } else {
+                    follow::Look::Other
+                }
+            }
+            Err(CaptureError::Minimised) => follow::Look::Minimised,
+            Err(_) => follow::Look::Failed,
+        })
+    });
+    if let Some(why) = why.filter(|_| ours()) {
+        clear_overlay(app);
+        log(
+            &shell,
+            &format!("route taken down after {:.0} s: {why}", started.elapsed().as_secs_f32()),
+        );
     }
 }
 
@@ -450,9 +503,16 @@ fn set_overlay(app: AppHandle, shell: State<Shell>, enabled: bool) -> ShellStatu
     shell.settings.lock().unwrap().overlay = enabled;
     save(&shell);
     if !enabled {
-        clear_overlay(&app);
+        dismiss_overlay(app, shell.clone());
     }
     status_of(&shell)
+}
+
+/// Wipes the route from the game and ends any watch that would have done it later.
+#[tauri::command]
+fn dismiss_overlay(app: AppHandle, shell: State<Shell>) {
+    shell.generation.fetch_add(1, Ordering::SeqCst);
+    clear_overlay(&app);
 }
 
 #[tauri::command]
@@ -708,7 +768,7 @@ pub fn run() {
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![status, capture, allow_capture, set_priority, set_matcher, set_overlay, set_updates, watch_folder, pause_hotkey, set_hotkey, last_frame_url,
+        .invoke_handler(tauri::generate_handler![status, capture, allow_capture, set_priority, set_matcher, set_overlay, dismiss_overlay, set_updates, watch_folder, pause_hotkey, set_hotkey, last_frame_url,
             update::check_update,
             update::install_update,
             update::open_downloads])
