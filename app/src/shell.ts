@@ -40,6 +40,8 @@ function showShell(status: ShellStatus, problem?: string): void {
   $<HTMLButtonElement>('hotkey-change').textContent = recording ? 'Cancel' : 'Change'
   $<HTMLInputElement>('overlay-on').checked = status.overlay
   $<HTMLInputElement>('updates-on').checked = status.updates
+  $<HTMLElement>('tray-set').hidden = status.tray === null
+  $<HTMLInputElement>('tray-on').checked = status.tray === true
   if (status.matcher !== state.matcher) {
     state.matcher = status.matcher
     remembered.matcher = status.matcher
@@ -150,6 +152,7 @@ export async function startShell(): Promise<void> {
     showShell(status, status.capture_ready ? undefined : 'Allow Breacher under Screen Recording in the system privacy settings, then start it again.')
   })
   $<HTMLInputElement>('overlay-on').addEventListener('change', async e => showShell(await shell.setOverlay((e.target as HTMLInputElement).checked)))
+  $<HTMLInputElement>('tray-on').addEventListener('change', async e => showShell(await shell.setTray((e.target as HTMLInputElement).checked)))
   $<HTMLButtonElement>('watch').addEventListener('click', async e => {
     const watching = (e.currentTarget as HTMLButtonElement).dataset.watching === 'true'
     const dir = watching ? null : await shell.pickFolder()
@@ -171,6 +174,8 @@ export function previewShell(): void {
   $<HTMLElement>('hotkey-now').textContent = 'Ctrl Shift B'
   $<HTMLInputElement>('overlay-on').checked = true
   $<HTMLInputElement>('updates-on').checked = true
+  $<HTMLElement>('tray-set').hidden = false
+  $<HTMLInputElement>('tray-on').checked = true
   $<HTMLElement>('watch-note').textContent = 'Watching C:\\Users\\you\\Pictures\\Screenshots'
   $<HTMLButtonElement>('watch').textContent = 'Stop watching'
 }

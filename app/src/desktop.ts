@@ -26,6 +26,8 @@ export interface ShellStatus {
   overlay: boolean
   /** Ask the release page for a newer version at start. */
   updates: boolean
+  /** Closing the window keeps the program in the tray; null where there is no tray. */
+  tray: boolean | null
   matcher: Matcher | null
   /** Where the shell writes its log, for bug reports. */
   log_path: string
@@ -61,6 +63,7 @@ export interface Desktop {
   allowCapture(): Promise<ShellStatus>
   setOverlay(enabled: boolean): Promise<ShellStatus>
   setUpdates(enabled: boolean): Promise<ShellStatus>
+  setTray(enabled: boolean): Promise<ShellStatus>
   /** Let the player choose a folder; resolves to null when they cancel. */
   pickFolder(): Promise<string | null>
   /** Watch a folder for new screenshots, or stop watching with null. */
@@ -141,6 +144,10 @@ function make(): Desktop {
     async setUpdates(enabled) {
       const { invoke } = await core
       return invoke<ShellStatus>('set_updates', { enabled })
+    },
+    async setTray(enabled) {
+      const { invoke } = await core
+      return invoke<ShellStatus>('set_tray', { enabled })
     },
     async pickFolder() {
       const { open } = await import('@tauri-apps/plugin-dialog')
