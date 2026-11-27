@@ -61,6 +61,7 @@ jobs:
         env:
           BREACHER_CONFIG: selftest/settings.json
           BREACHER_SELFTEST: corpus/cpah/0.png
+          BREACHER_SELFTEST_AUTOSTART: 1
         run: |
           ./target/release/breacher.exe > selftest.txt 2>&1 || echo "exit code $?"
           cat selftest.txt selftest/breacher.log
