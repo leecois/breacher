@@ -33,6 +33,7 @@
       <label class="check"><input type="checkbox" id="overlay-on" /><span class="box" aria-hidden="true"></span>Draw the route over the game</label>
       <label class="check"><input type="checkbox" id="updates-on" /><span class="box" aria-hidden="true"></span>Look for updates at start</label>
       <label class="check" id="tray-set" hidden><input type="checkbox" id="tray-on" /><span class="box" aria-hidden="true"></span>Stay in the tray when closed</label>
+      <label class="check" id="autostart-set" hidden><input type="checkbox" id="autostart-on" /><span class="box" aria-hidden="true"></span>Start when you sign in</label>
       <p id="watch-note" class="watch-note"></p>
       <button id="watch" class="btn small">Watch a screenshot folder</button>
     </section>
@@ -145,7 +146,10 @@
 
     <footer class="statusbar">
       <div id="title-block" aria-label="Frame details"></div>
-      <div id="versions" aria-label="Versions"></div>
+      <div>
+        <div id="versions" aria-label="Versions"></div>
+        <button id="report" hidden>Save a report</button>
+      </div>
     </footer>
 
     <div class="drop-veil" id="drop-veil" aria-hidden="true"><p>Drop the screenshot</p></div>

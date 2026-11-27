@@ -28,6 +28,8 @@ export interface ShellStatus {
   updates: boolean
   /** Closing the window keeps the program in the tray; null where there is no tray. */
   tray: boolean | null
+  /** The program starts when the player signs in; null when the system will not say. */
+  autostart: boolean | null
   matcher: Matcher | null
   /** Where the shell writes its log, for bug reports. */
   log_path: string
@@ -64,6 +66,9 @@ export interface Desktop {
   setOverlay(enabled: boolean): Promise<ShellStatus>
   setUpdates(enabled: boolean): Promise<ShellStatus>
   setTray(enabled: boolean): Promise<ShellStatus>
+  setAutostart(enabled: boolean): Promise<ShellStatus>
+  /** Save the last frame, its reading, the log and the versions to a folder; resolves to that folder. */
+  saveReport(stamp: string): Promise<string>
   /** Let the player choose a folder; resolves to null when they cancel. */
   pickFolder(): Promise<string | null>
   /** Watch a folder for new screenshots, or stop watching with null. */
@@ -148,6 +153,14 @@ function make(): Desktop {
     async setTray(enabled) {
       const { invoke } = await core
       return invoke<ShellStatus>('set_tray', { enabled })
+    },
+    async setAutostart(enabled) {
+      const { invoke } = await core
+      return invoke<ShellStatus>('set_autostart', { enabled })
+    },
+    async saveReport(stamp) {
+      const { invoke } = await core
+      return invoke<string>('save_report', { stamp })
     },
     async pickFolder() {
       const { open } = await import('@tauri-apps/plugin-dialog')

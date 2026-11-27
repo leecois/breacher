@@ -1,6 +1,6 @@
 import { desktop, type AnswerEvent, type Desktop, type ShellStatus, type UpdateInfo } from './desktop'
 import { $ } from './dom'
-import { showVersions } from './render'
+import { showVersions, status as say } from './render'
 import { attachImage, show } from './session'
 import { remembered, state } from './state'
 import type { FrameInfo } from './types'
@@ -42,6 +42,9 @@ function showShell(status: ShellStatus, problem?: string): void {
   $<HTMLInputElement>('updates-on').checked = status.updates
   $<HTMLElement>('tray-set').hidden = status.tray === null
   $<HTMLInputElement>('tray-on').checked = status.tray === true
+  $<HTMLElement>('autostart-set').hidden = status.autostart === null
+  $<HTMLInputElement>('autostart-on').checked = status.autostart === true
+  $<HTMLButtonElement>('report').hidden = false
   if (status.matcher !== state.matcher) {
     state.matcher = status.matcher
     remembered.matcher = status.matcher
@@ -153,6 +156,23 @@ export async function startShell(): Promise<void> {
   })
   $<HTMLInputElement>('overlay-on').addEventListener('change', async e => showShell(await shell.setOverlay((e.target as HTMLInputElement).checked)))
   $<HTMLInputElement>('tray-on').addEventListener('change', async e => showShell(await shell.setTray((e.target as HTMLInputElement).checked)))
+  $<HTMLInputElement>('autostart-on').addEventListener('change', async e => {
+    try {
+      showShell(await shell.setAutostart((e.target as HTMLInputElement).checked))
+    } catch (err) {
+      showShell(await shell.status(), `Starting at sign-in could not be changed: ${String(err)}`)
+    }
+  })
+  $<HTMLButtonElement>('report').addEventListener('click', async () => {
+    const now = new Date()
+    const two = (n: number): string => String(n).padStart(2, '0')
+    const stamp = `${now.getFullYear()}-${two(now.getMonth() + 1)}-${two(now.getDate())} ${two(now.getHours())}-${two(now.getMinutes())}-${two(now.getSeconds())}`
+    try {
+      say([['Report saved in', await shell.saveReport(stamp)]])
+    } catch (err) {
+      say([['Report not saved', String(err)]])
+    }
+  })
   $<HTMLButtonElement>('watch').addEventListener('click', async e => {
     const watching = (e.currentTarget as HTMLButtonElement).dataset.watching === 'true'
     const dir = watching ? null : await shell.pickFolder()
@@ -176,6 +196,8 @@ export function previewShell(): void {
   $<HTMLInputElement>('updates-on').checked = true
   $<HTMLElement>('tray-set').hidden = false
   $<HTMLInputElement>('tray-on').checked = true
+  $<HTMLElement>('autostart-set').hidden = false
+  $<HTMLButtonElement>('report').hidden = false
   $<HTMLElement>('watch-note').textContent = 'Watching C:\\Users\\you\\Pictures\\Screenshots'
   $<HTMLButtonElement>('watch').textContent = 'Stop watching'
 }
