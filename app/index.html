@@ -11,6 +11,7 @@
       <h1 class="brand">Breacher<span class="brand-mk">MK.2</span></h1>
       <p class="bar-what">Reads a Breach Protocol screen and marks the route</p>
       <div class="bar-actions">
+        <button id="home" class="btn" hidden>Back to start</button>
         <button id="capture" class="btn primary" hidden>Capture game</button>
         <button id="open" class="btn">Open screenshot</button>
         <input id="file" type="file" accept="image/*" hidden />
@@ -20,6 +21,11 @@
     <section class="shell" id="shell" hidden aria-label="Capture settings">
       <p id="shell-note" class="shell-note" hidden></p>
       <button id="allow" class="btn small" hidden>Allow screen capture</button>
+      <div class="hotkey" id="hotkey-set">
+        <span id="hotkey-label">Hotkey</span>
+        <kbd id="hotkey-now" aria-labelledby="hotkey-label"></kbd>
+        <button id="hotkey-change" class="btn small">Change</button>
+      </div>
       <label class="check"><input type="checkbox" id="overlay-on" /><span class="box" aria-hidden="true"></span>Draw the route over the game</label>
       <p id="watch-note" class="watch-note"></p>
       <button id="watch" class="btn small">Watch a screenshot folder</button>
@@ -51,7 +57,7 @@
           <summary>What the reader saw</summary>
           <p id="reject-detail"></p>
         </details>
-        <img id="reject-image" alt="The frame that was read" hidden />
+        <img id="reject-image" alt="The frame that was captured" hidden />
       </section>
 
       <section class="result">

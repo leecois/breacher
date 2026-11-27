@@ -1,9 +1,11 @@
-import type { FrameInfo, Matcher, Plan, PlanOptions, Priority, Reading, Route } from './types'
+import type { FrameInfo, Matcher, Plan, PlanOptions, Priority, Reading, Rejection, Route } from './types'
 
 export interface State {
   frame: FrameInfo | null
   reading: Reading | null
   plan: Plan | null
+  /** Why the current frame was not read, when it was not. */
+  rejection: Rejection | null
   /** Daemons the player wants, by index. */
   wanted: boolean[]
   /** Buffer size set by hand; null = what the screen shows. */
@@ -37,7 +39,7 @@ export const remembered = {
   },
 }
 
-export const state: State = { frame: null, reading: null, plan: null, wanted: [], buffer: null, priority: 'count', optimistic: false, matcher: remembered.matcher, view: 'sheet' }
+export const state: State = { frame: null, reading: null, plan: null, rejection: null, wanted: [], buffer: null, priority: 'count', optimistic: false, matcher: remembered.matcher, view: 'sheet' }
 
 export const planOptions = (): PlanOptions => ({ buffer: state.buffer, wanted: state.wanted.length ? state.wanted : null, priority: state.priority, matcher: state.matcher })
 

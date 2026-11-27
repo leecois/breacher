@@ -15,9 +15,10 @@ export interface OverlayPayload {
 }
 
 export interface ShellStatus {
+  /** The bound hotkey as the player reads it; empty when none could be bound. */
   hotkey: string
   capture_ready: boolean
-  /** Why capture is unavailable, in words for the player. */
+  /** What the player should know about capture or the hotkey; empty when all is well. */
   capture_note: string
   watch_dir: string | null
   overlay: boolean
@@ -28,8 +29,15 @@ export interface ShellStatus {
 
 export interface Desktop {
   start(onAnswer: (a: AnswerEvent) => void): Promise<ShellStatus>
+  status(): Promise<ShellStatus>
   capture(): Promise<void>
   publish(payload: OverlayPayload): void
+  /** Wipe the route drawn over the game. */
+  clearOverlay(): void
+  /** Let go of the hotkey so the page can see the keys of a new one. */
+  pauseHotkey(): Promise<void>
+  /** Bind a new hotkey, or take the current one back with null; rejects with words for the player. */
+  setHotkey(accelerator: string | null): Promise<ShellStatus>
   setPriority(p: Priority): void
   setMatcher(m: Matcher | null): void
   lastFrameUrl(): Promise<string | null>
@@ -54,12 +62,27 @@ function make(): Desktop {
       const { invoke } = await core
       return invoke<ShellStatus>('status')
     },
+    async status() {
+      const { invoke } = await core
+      return invoke<ShellStatus>('status')
+    },
     async capture() {
       const { invoke } = await core
       await invoke('capture')
     },
     publish(payload) {
       void event.then(({ emitTo }) => emitTo('overlay', 'route', payload)).catch(() => undefined)
+    },
+    clearOverlay() {
+      void event.then(({ emitTo }) => emitTo('overlay', 'clear')).catch(() => undefined)
+    },
+    async pauseHotkey() {
+      const { invoke } = await core
+      await invoke('pause_hotkey')
+    },
+    async setHotkey(accelerator) {
+      const { invoke } = await core
+      return invoke<ShellStatus>('set_hotkey', { accelerator })
     },
     setPriority(p) {
       void core.then(({ invoke }) => invoke('set_priority', { priority: p })).catch(() => undefined)

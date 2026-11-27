@@ -29,6 +29,10 @@
   --cut-shape-alt: polygon(var(--cut) 0, 100% 0, 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%, 0 100%, 0 var(--cut));
 }
 
+[hidden] {
+  display: none !important;
+}
+
 html,
 body {
   height: 100%;
@@ -294,12 +298,20 @@ kbd {
   font-size: 0.95rem;
 }
 
-.shell[hidden] {
-  display: none;
+.shell-note {
+  flex-basis: 100%;
+  color: var(--yellow);
 }
 
-.shell-note {
-  color: var(--yellow);
+.hotkey {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.hotkey[data-recording] kbd {
+  color: var(--cyan);
+  border-color: var(--cyan);
 }
 
 .watch-note {
@@ -542,11 +554,6 @@ kbd {
   min-height: 12rem;
   position: relative;
   margin: 0.6rem 0.8rem 0.9rem;
-}
-
-.sheet[hidden],
-.screen[hidden] {
-  display: none;
 }
 
 .sheet svg {
@@ -1019,6 +1026,17 @@ select:hover {
 
   .brand {
     padding-right: 1.9rem;
+  }
+
+  .bar {
+    flex-wrap: wrap;
+    row-gap: 0;
+  }
+
+  .bar-actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    padding-left: 1rem;
   }
 
   #stage {

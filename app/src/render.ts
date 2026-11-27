@@ -1,9 +1,7 @@
 import { $ } from './dom'
 import { cellName, drawOverlay, drawSheet } from './draw'
 import { shownRoute, state } from './state'
-import { CODES, type FrameInfo, type Plan, type Reading, type Response, type Route } from './types'
-
-type Rejection = Exclude<Response, { status: 'ok' }>
+import { CODES, type FrameInfo, type Plan, type Reading, type Rejection, type Route } from './types'
 
 const ms = (v: number): string => (v < 1 ? 'under 1 ms' : v >= 10 ? `${v.toFixed(0)} ms` : `${v.toFixed(1)} ms`)
 

@@ -1,11 +1,12 @@
 import { desktop } from './desktop'
 import { $ } from './dom'
-import { planAgain, readBlob, redraw } from './session'
+import { home, planAgain, readBlob, redraw } from './session'
 import { remembered, state } from './state'
 import type { Priority } from './types'
 
 export function wireInput(): void {
   const file = $<HTMLInputElement>('file')
+  $<HTMLButtonElement>('home').addEventListener('click', home)
   $<HTMLButtonElement>('open').addEventListener('click', () => file.click())
   file.addEventListener('change', () => {
     const f = file.files?.[0]
@@ -79,8 +80,7 @@ export function wireSettings(): void {
     state.view = 'sheet'
     redraw(false)
   })
-  $<HTMLButtonElement>('tab-screen').addEventListener('click', async () => {
-    if (state.frame && !state.frame.url && desktop) state.frame.url = (await desktop.lastFrameUrl()) ?? undefined
+  $<HTMLButtonElement>('tab-screen').addEventListener('click', () => {
     state.view = 'screen'
     redraw(false)
   })

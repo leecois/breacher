@@ -1,11 +1,16 @@
 import { pixelsOf, readRgba, replan } from './core'
 import { desktop } from './desktop'
 import { $ } from './dom'
-import { render, renderRejected } from './render'
+import { render, renderRejected, status } from './render'
 import { planOptions, remembered, shownRoute, state } from './state'
 import type { FrameInfo, Response } from './types'
 
 const stage = $<HTMLElement>('stage')
+
+function setStage(name: 'empty' | 'rejected' | 'result'): void {
+  stage.dataset.state = name
+  $<HTMLButtonElement>('home').hidden = name === 'empty'
+}
 
 export function redraw(animate: boolean): void {
   render(animate, () => void planAgain())
@@ -39,15 +44,37 @@ export function show(response: Response, frame: FrameInfo, fresh: boolean): void
       state.optimistic = false
       if (!response.reading.quality.buffer_assumed) remembered.buffer = response.reading.buffer
     }
-    stage.dataset.state = 'result'
+    state.rejection = null
+    setStage('result')
     redraw(fresh)
   } else {
     state.reading = null
     state.plan = null
-    stage.dataset.state = 'rejected'
+    state.rejection = response
+    setStage('rejected')
     renderRejected(response, frame)
   }
   desktop?.publish({ response, frame: { width: frame.width, height: frame.height, source: frame.source }, route: shownRoute() })
+}
+
+/** Gives the current frame its picture once the desktop shell has encoded it. */
+export function attachImage(frame: FrameInfo, url: string): void {
+  if (state.frame !== frame) return
+  frame.url = url
+  if (state.reading) redraw(false)
+  else if (state.rejection) renderRejected(state.rejection, frame)
+}
+
+/** Drops the current frame and returns to the start screen. */
+export function home(): void {
+  if (state.frame?.url) URL.revokeObjectURL(state.frame.url)
+  state.frame = null
+  state.reading = null
+  state.plan = null
+  state.rejection = null
+  setStage('empty')
+  status([['Status', 'No frame yet']])
+  desktop?.clearOverlay()
 }
 
 export async function planAgain(): Promise<void> {

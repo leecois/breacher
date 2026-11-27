@@ -52,6 +52,8 @@ export type Response =
   | { status: 'rejected'; stage: Stage; message: string; hint: string }
   | { status: 'error'; message: string }
 
+export type Rejection = Exclude<Response, { status: 'ok' }>
+
 export type Priority = 'count' | 'tier'
 export type Matcher = 'substring' | 'retest' | 'strict' | 'unanimous'
 
