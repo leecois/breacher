@@ -1,3 +1,18 @@
+## New in 0.2.8
+
+- **Follows your picks.** While a route is drawn over the game, Breacher keeps looking at the
+  game window and sees each pick you make. Played steps disappear from the route over the game and
+  fade in the window, the next pick is ringed in white, and the line under the matrix counts
+  ("Pick 5 of 7").
+- **Recovers from a wrong pick.** A pick off the route is not the end: the rest is planned again
+  from where the breach stands, and the new route replaces the old one over the game.
+- This was built from frames of a breach played on the current game (2.5, 2560×1440) and passes on
+  those; it has not yet been watched working live. When a look does not fit what Breacher knows it
+  changes nothing, so the worst case is the route as it was before. On Windows 10 picks are not
+  followed, for the same reason the route stays 45 seconds there.
+- **Fuller reports.** A saved report now holds every look Breacher took at the last breach it
+  followed, about one every 0.7 seconds for the last 17 seconds, including how the breach ended.
+
 ## New in 0.2.7
 
 - **Check the rule with a breach.** What the game does to a sequence when a pick does not continue

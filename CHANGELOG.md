@@ -6,6 +6,19 @@ Notable changes for people who use Breacher. The format follows
 
 ## Unreleased
 
+## 0.2.8 - 2026-11-28
+
+### Added
+
+- Breacher follows your picks while a route is drawn: played steps fade, the next one stands out,
+  and after a pick off the route the rest is planned again from where the breach stands.
+
+### Changed
+
+- A saved report holds every look at the last breach that was followed, up to the latest 24 and
+  including how it ended, where it used to hold one look every two seconds. The log notes what
+  each look saw.
+
 ## 0.2.7 - 2026-11-28
 
 ### Added
