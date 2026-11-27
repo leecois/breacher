@@ -5,6 +5,7 @@ mod clock;
 pub mod glyph;
 pub mod image;
 pub mod plan;
+pub mod progress;
 pub mod reader;
 pub mod solver;
 mod templates_data;

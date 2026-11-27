@@ -3,6 +3,8 @@ use breach_core::api::breach_on_screen;
 use breach_core::glyph::Templates;
 use breach_core::image::{Frame, PixelFormat};
 use breach_core::plan::{plan, PlanOptions};
+use breach_core::progress::{advance, look, Mark};
+use breach_core::reader::Geometry;
 use breach_core::reader::{read, ReadOptions, Reading, Stage};
 use breach_core::solver::{self, Matcher};
 use image::{imageops, RgbImage};
@@ -140,6 +142,120 @@ fn a_breach_being_played_is_still_seen() {
                 }
             }
             assert!(seen(&img), "{name}: lost after pick {}", k + 1);
+        }
+    }
+}
+
+const CYAN: image::Rgb<u8> = image::Rgb([85, 220, 232]);
+const CODE: image::Rgb<u8> = image::Rgb([215, 245, 90]);
+
+fn fill(img: &mut RgbImage, cx: f32, cy: f32, hw: f32, hh: f32, colour: image::Rgb<u8>) {
+    for y in (cy - hh) as u32..=(cy + hh) as u32 {
+        for x in (cx - hw) as u32..=(cx + hw) as u32 {
+            img.put_pixel(x, y, colour);
+        }
+    }
+}
+
+/// Paints a matrix cell the way the game shows it once the pointer or a pick has been there.
+fn mark_cell(img: &mut RgbImage, g: &Geometry, cell: usize, mark: Mark) {
+    let (cx, cy) = g.cell_center(cell / g.n, cell % g.n);
+    let ground = *img.get_pixel((cx + g.px / 2.0) as u32, (cy + g.py / 2.0) as u32);
+    match mark {
+        Mark::Code => {}
+        Mark::Used => fill(img, cx, cy, g.px * 0.42, g.py * 0.4, ground),
+        Mark::Flash => fill(img, cx, cy, g.px * 0.46, g.py * 0.46, CYAN),
+        Mark::Hover => {
+            // the code turns cyan and a box is drawn round it
+            for y in (cy - g.py * 0.4) as u32..=(cy + g.py * 0.4) as u32 {
+                for x in (cx - g.px * 0.4) as u32..=(cx + g.px * 0.4) as u32 {
+                    let p = img.get_pixel(x, y).0;
+                    if p[0] > 120 && p[0] as u32 * 4 > p[2] as u32 * 5 {
+                        img.put_pixel(x, y, CYAN);
+                    }
+                }
+            }
+            for t in 0..3 {
+                let (hw, hh) = (g.px * 0.47 - t as f32, g.py * 0.47 - t as f32);
+                fill(img, cx, cy - hh, hw, 0.0, CYAN);
+                fill(img, cx, cy + hh, hw, 0.0, CYAN);
+                fill(img, cx - hw, cy, 0.0, hh, CYAN);
+                fill(img, cx + hw, cy, 0.0, hh, CYAN);
+            }
+        }
+    }
+}
+
+/// Paints a buffer slot as filled for good, as flashing, or as the preview of a code under the pointer.
+fn mark_slot(img: &mut RgbImage, g: &Geometry, slot: usize, mark: Mark) {
+    let (cx, cy, q) = (g.seq_x0 + slot as f32 * g.seq_pitch_x, g.buffer_y, g.seq_pitch_x);
+    match mark {
+        Mark::Code => {}
+        Mark::Used => fill(img, cx, cy, q * 0.22, q * 0.22, CODE),
+        Mark::Flash => fill(img, cx, cy, q * 0.45, q * 0.45, CYAN),
+        Mark::Hover => fill(img, cx, cy, q * 0.16, q * 0.16, CYAN),
+    }
+}
+
+fn looked(img: &RgbImage, reading: &Reading) -> breach_core::progress::Look {
+    let frame =
+        Frame::new(img.width() as usize, img.height() as usize, PixelFormat::Rgb8, img.as_raw());
+    look(&frame, &reading.geometry, reading.buffer)
+}
+
+#[test]
+fn an_untouched_screen_shows_no_pick() {
+    for (name, img, label) in corpus() {
+        if label.negative {
+            continue;
+        }
+        let reading = run(&img).unwrap();
+        let seen = looked(&img, &reading);
+        assert_eq!(seen.committed, 0, "{name}");
+        assert!(seen.cells.iter().all(|m| *m == Mark::Code), "{name}: {:?}", seen.cells);
+    }
+}
+
+/// A route is played on a copy of each capture, painted the way the game shows it, and followed pick by pick.
+#[test]
+fn a_played_route_is_followed_pick_by_pick() {
+    for (name, img, label) in corpus() {
+        if label.negative {
+            continue;
+        }
+        let reading = run(&img).unwrap();
+        let (g, n) = (&reading.geometry, reading.n);
+        let route: Vec<usize> = plan(&reading, &PlanOptions::default())
+            .route
+            .steps
+            .iter()
+            .map(|s| s.row * n + s.col)
+            .collect();
+        let mut played: Vec<usize> = Vec::new();
+        for k in 0..route.len() {
+            // the pointer rests on the next cell: its code is previewed in the buffer, and nothing is picked
+            let mut hovering = img.clone();
+            for (i, &cell) in route[..k].iter().enumerate() {
+                mark_cell(&mut hovering, g, cell, Mark::Used);
+                mark_slot(&mut hovering, g, i, Mark::Used);
+            }
+            mark_cell(&mut hovering, g, route[k], Mark::Hover);
+            mark_slot(&mut hovering, g, k, Mark::Hover);
+            let seen = looked(&hovering, &reading);
+            assert_eq!(seen.committed, k, "{name}: hovering before pick {}", k + 1);
+            assert_eq!(advance(n, &played, &seen), Some(played.clone()), "{name}: hover {}", k + 1);
+            // the pick flashes in the matrix and in the buffer
+            let mut picked = img.clone();
+            for (i, &cell) in route[..k].iter().enumerate() {
+                mark_cell(&mut picked, g, cell, Mark::Used);
+                mark_slot(&mut picked, g, i, Mark::Used);
+            }
+            mark_cell(&mut picked, g, route[k], Mark::Flash);
+            mark_slot(&mut picked, g, k, Mark::Flash);
+            let seen = looked(&picked, &reading);
+            assert_eq!(seen.committed, k + 1, "{name}: pick {}", k + 1);
+            played = advance(n, &played, &seen).unwrap_or_else(|| panic!("{name}: pick {}", k + 1));
+            assert_eq!(played, route[..=k], "{name}: pick {}", k + 1);
         }
     }
 }

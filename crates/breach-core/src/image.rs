@@ -35,6 +35,16 @@ impl<'a> Frame<'a> {
         Frame { width, height, stride: width * format.bytes_per_pixel(), format, data }
     }
 
+    /// Red, green and blue of one pixel; grey frames give the same value three times.
+    pub fn rgb(&self, x: usize, y: usize) -> [u8; 3] {
+        let p = &self.data[y * self.stride + x * self.format.bytes_per_pixel()..];
+        match self.format {
+            PixelFormat::Bgra8 => [p[2], p[1], p[0]],
+            PixelFormat::Rgba8 | PixelFormat::Rgb8 => [p[0], p[1], p[2]],
+            PixelFormat::Gray8 => [p[0], p[0], p[0]],
+        }
+    }
+
     pub fn is_valid(&self) -> bool {
         self.width > 0
             && self.height > 0
