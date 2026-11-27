@@ -1,5 +1,6 @@
 import { desktop, type AnswerEvent, type Desktop, type ShellStatus, type UpdateInfo } from './desktop'
 import { $ } from './dom'
+import { showVersions } from './render'
 import { attachImage, show } from './session'
 import { remembered, state } from './state'
 import type { FrameInfo } from './types'
@@ -19,6 +20,7 @@ function onAnswer(a: AnswerEvent): void {
 /** `problem` replaces the shell's own note when a hotkey the player chose could not be bound. */
 function showShell(status: ShellStatus, problem?: string): void {
   current = status
+  showVersions({ app: status.version })
   $<HTMLElement>('shell').hidden = false
   const capture = $<HTMLButtonElement>('capture')
   capture.hidden = false
@@ -127,7 +129,7 @@ function showUpdate(shell: Desktop, update: UpdateInfo, failure?: string): void 
 export async function startShell(): Promise<void> {
   if (!desktop) return
   const shell = desktop
-  showShell(await shell.start(onAnswer))
+  showShell(await shell.start(onAnswer, game => showVersions({ game })))
   wireHotkey(shell)
   const lookForUpdate = (): void => {
     void shell

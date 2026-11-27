@@ -15,6 +15,8 @@ export interface OverlayPayload {
 }
 
 export interface ShellStatus {
+  /** The version of the desktop program. */
+  version: string
   /** The bound hotkey as the player reads it; empty when none could be bound. */
   hotkey: string
   capture_ready: boolean
@@ -36,7 +38,8 @@ export interface UpdateInfo {
 }
 
 export interface Desktop {
-  start(onAnswer: (a: AnswerEvent) => void): Promise<ShellStatus>
+  /** `onGame` hears the version of the game each time a capture finds its window. */
+  start(onAnswer: (a: AnswerEvent) => void, onGame: (version: string) => void): Promise<ShellStatus>
   status(): Promise<ShellStatus>
   capture(): Promise<void>
   publish(payload: OverlayPayload): void
@@ -70,9 +73,10 @@ function make(): Desktop {
   const core = import('@tauri-apps/api/core')
   const event = import('@tauri-apps/api/event')
   return {
-    async start(onAnswer) {
+    async start(onAnswer, onGame) {
       const { listen } = await event
       await listen<AnswerEvent>('answer', e => onAnswer(e.payload))
+      await listen<string>('game-version', e => onGame(e.payload))
       const { invoke } = await core
       return invoke<ShellStatus>('status')
     },

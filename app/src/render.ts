@@ -5,9 +5,8 @@ import { CODES, type FrameInfo, type Plan, type Reading, type Rejection, type Ro
 
 const ms = (v: number): string => (v < 1 ? 'under 1 ms' : v >= 10 ? `${v.toFixed(0)} ms` : `${v.toFixed(1)} ms`)
 
-export function status(items: Array<[string, string]>): void {
-  const bar = $<HTMLElement>('title-block')
-  bar.replaceChildren(
+function fill(id: string, items: Array<[string, string]>): void {
+  $<HTMLElement>(id).replaceChildren(
     ...items.map(([k, v]) => {
       const span = document.createElement('span')
       const key = document.createElement('i')
@@ -16,6 +15,19 @@ export function status(items: Array<[string, string]>): void {
       return span
     }),
   )
+}
+
+export function status(items: Array<[string, string]>): void {
+  fill('title-block', items)
+}
+
+const versions: { app: string; game: string | null } = { app: __APP_VERSION__, game: null }
+
+/** Shows which Breacher this is and, once a capture has told, which version of the game it looked at. */
+export function showVersions(known: { app?: string; game?: string } = {}): void {
+  if (known.app) versions.app = known.app
+  if (known.game) versions.game = known.game
+  fill('versions', [...(versions.game ? ([['Game', versions.game]] as Array<[string, string]>) : []), ['Breacher', versions.app]])
 }
 
 function caption(reading: Reading, plan: Plan, route: Route): string {

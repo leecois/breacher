@@ -11,7 +11,7 @@ import { warm } from './core'
 import { desktop } from './desktop'
 import { $ } from './dom'
 import { drawGhost } from './draw'
-import { status } from './render'
+import { showVersions, status } from './render'
 import { listSamples, loadSample } from './samples'
 import { previewShell, startShell } from './shell'
 import { state } from './state'
@@ -22,6 +22,7 @@ async function start(): Promise<void> {
   wireSettings()
   drawGhost($<SVGSVGElement>('ghost'))
   status([['Status', 'No frame yet']])
+  showVersions()
   void listSamples()
   await startShell()
   const params = new URLSearchParams(location.search)

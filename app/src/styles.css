@@ -927,6 +927,8 @@ select:hover {
   grid-row: 4;
   display: flex;
   flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0 2rem;
   padding: 0.42rem 1.25rem 0.4rem;
   border-top: 1px solid var(--line);
   background: color-mix(in srgb, var(--panel) 80%, transparent);
@@ -936,6 +938,11 @@ select:hover {
   text-transform: uppercase;
   white-space: nowrap;
   overflow: hidden;
+}
+
+.statusbar > div {
+  display: flex;
+  flex-wrap: wrap;
 }
 
 .statusbar i {
