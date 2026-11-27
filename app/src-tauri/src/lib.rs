@@ -11,6 +11,7 @@ use breach_core::api::{self, Response};
 use breach_core::glyph::Templates;
 use breach_core::image::{Frame, PixelFormat};
 use breach_core::plan::{rule_check, PlanOptions, Priority, Route, RuleCheck};
+use breach_core::progress;
 use breach_core::reader::{ReadOptions, Stage};
 use breach_core::solver::Matcher;
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
@@ -92,6 +93,8 @@ struct Shell {
     game: Mutex<Option<String>>,
     /// A few looks at the last breach that was followed, for a report.
     looks: Mutex<Vec<follow::Kept>>,
+    /// The breach whose picks are being followed, with the answer its route came from.
+    followed: Mutex<Option<(follow::Followed, Response, FrameMeta)>>,
     /// Whether the program starts when the player signs in; `None` when the system will not say.
     autostart: Mutex<Option<bool>>,
     /// Bumped on every capture; a pending "clear the overlay" only fires for its own capture.
@@ -130,6 +133,16 @@ struct OverlayPayload {
     frame: FrameMeta,
     route: Option<Route>,
     /// The route is a rule check, to be played exactly as drawn.
+    check: bool,
+}
+
+/// News for the main window of a pick seen in the game.
+#[derive(Clone, Serialize)]
+struct Progress {
+    /// The route as it now stands, with the picks made counted off.
+    route: Route,
+    /// The pick left the route that was drawn, and this one replaces it.
+    replanned: bool,
     check: bool,
 }
 
@@ -309,6 +322,7 @@ fn run_capture(app: &AppHandle) {
     let shell = app.state::<Shell>();
     let settings = shell.settings.lock().unwrap().clone();
     let generation = shell.generation.fetch_add(1, Ordering::SeqCst) + 1;
+    *shell.followed.lock().unwrap() = None;
     // our own drawing must not be in the frame (it would be when a whole display is captured)
     clear_overlay(app);
     if !matches!(settings.target, Target::Window(_)) {
@@ -382,8 +396,8 @@ fn run_capture(app: &AppHandle) {
         if !overlay.is_visible().unwrap_or(false) {
             let _ = overlay.show();
         }
-        let plan = match &response {
-            Response::Ok { plan, .. } => plan,
+        let (reading, plan) = match &response {
+            Response::Ok { reading, plan } => (reading, plan),
             Response::Rejected { hint, .. } => {
                 // nothing else tells a player inside the game that the capture came to nothing
                 let _ = app.emit_to("overlay", "notice", hint.clone());
@@ -399,7 +413,19 @@ fn run_capture(app: &AppHandle) {
         };
         // a rule check takes the place of the route: its picks are the ones to play
         let check = told.check.is_some();
-        let route = Some(told.check.map_or_else(|| plan.route.clone(), |c| c.route));
+        let route = told.check.map_or_else(|| plan.route.clone(), |c| c.route);
+        if again.is_some() {
+            let followed = follow::Followed {
+                reading: reading.clone(),
+                route: route.clone(),
+                check,
+                wanted: None,
+                buffer: None,
+                played: Vec::new(),
+            };
+            *shell.followed.lock().unwrap() = Some((followed, response.clone(), meta.clone()));
+        }
+        let route = Some(route);
         let _ = app.emit_to(
             "overlay",
             "route",
@@ -428,6 +454,43 @@ fn run_capture(app: &AppHandle) {
     }
 }
 
+/// Tells the overlay and the main window how the followed route now stands.
+fn tell_progress(app: &AppHandle, shell: &Shell, replanned: bool) {
+    let guard = shell.followed.lock().unwrap();
+    let Some((followed, response, meta)) = guard.as_ref() else { return };
+    let (route, check) = (followed.route.clone(), followed.check);
+    let drawn = OverlayPayload {
+        response: response.clone(),
+        frame: meta.clone(),
+        route: Some(route.clone()),
+        check,
+    };
+    drop(guard);
+    let _ = app.emit_to("overlay", "route", drawn);
+    let _ = app.emit_to("main", "progress", Progress { route, replanned, check });
+}
+
+/// Looks for a new pick in a frame of the followed breach and redraws the route to match.
+fn follow_picks(app: &AppHandle, frame: &Frame) {
+    let shell = app.state::<Shell>();
+    let (priority, matcher) = {
+        let s = shell.settings.lock().unwrap();
+        (s.priority, s.matcher)
+    };
+    let step = {
+        let mut guard = shell.followed.lock().unwrap();
+        let Some((followed, ..)) = guard.as_mut() else { return };
+        let seen = progress::look(frame, &followed.reading.geometry, followed.reading.buffer);
+        followed.see(&seen, priority, matcher).map(|step| (step, followed.played.len()))
+    };
+    if let Some((step, picks)) = step {
+        let replanned = step == follow::Step::Replanned;
+        let what = if replanned { "off the route, the rest planned again" } else { "on the route" };
+        log(&shell, &format!("pick {picks} seen: {what}"));
+        tell_progress(app, &shell, replanned);
+    }
+}
+
 /// Keeps the route up for as long as the breach screen is, and takes it down when the screen goes.
 fn follow_breach(app: &AppHandle, game: &breach_capture::Source, generation: u64) {
     let shell = app.state::<Shell>();
@@ -450,6 +513,9 @@ fn follow_breach(app: &AppHandle, game: &breach_capture::Source, generation: u64
                     &cap.rgba,
                 );
                 let breach = api::breach_on_screen(&frame);
+                if breach {
+                    follow_picks(app, &frame);
+                }
                 // a breach being played, and how it ends, is what a report about it needs to show
                 if let Some(jpeg) = jpeg(cap.width, cap.height, &cap.rgba, 88) {
                     let at = (started.elapsed().as_secs_f32() * 10.0) as u32;
@@ -476,6 +542,7 @@ fn follow_breach(app: &AppHandle, game: &breach_capture::Source, generation: u64
         Some(look)
     });
     if let Some(why) = why.filter(|_| ours()) {
+        *shell.followed.lock().unwrap() = None;
         clear_overlay(app);
         log(
             &shell,
@@ -608,7 +675,39 @@ fn set_overlay(app: AppHandle, shell: State<Shell>, enabled: bool) -> ShellStatu
 #[tauri::command]
 fn dismiss_overlay(app: AppHandle, shell: State<Shell>) {
     shell.generation.fetch_add(1, Ordering::SeqCst);
+    *shell.followed.lock().unwrap() = None;
     clear_overlay(&app);
+}
+
+/// The window says which route it shows and under which choices, so that picks are followed against that one.
+#[tauri::command]
+fn shown_route(
+    app: AppHandle,
+    shell: State<Shell>,
+    route: Route,
+    wanted: Option<Vec<bool>>,
+    buffer: Option<usize>,
+    check: bool,
+) {
+    let (priority, matcher) = {
+        let s = shell.settings.lock().unwrap();
+        (s.priority, s.matcher)
+    };
+    let settled = {
+        let mut guard = shell.followed.lock().unwrap();
+        let Some((followed, ..)) = guard.as_mut() else { return };
+        (followed.route, followed.wanted, followed.buffer, followed.check) =
+            (route, wanted, buffer, check);
+        // a route the window planned afresh knows nothing of the picks already made
+        if followed.played.is_empty() {
+            None
+        } else {
+            followed.settle(priority, matcher)
+        }
+    };
+    if let Some(step) = settled {
+        tell_progress(&app, &shell, step == follow::Step::Replanned);
+    }
 }
 
 #[tauri::command]
@@ -858,6 +957,7 @@ pub fn run() {
                 last_answer: Mutex::new(None),
                 game: Mutex::new(None),
                 looks: Mutex::new(Vec::new()),
+                followed: Mutex::new(None),
                 autostart: Mutex::new(None),
                 generation: AtomicU64::new(0),
                 watcher: Mutex::new(None),
@@ -1001,7 +1101,7 @@ pub fn run() {
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![status, capture, allow_capture, set_priority, set_matcher, set_checking, set_overlay, dismiss_overlay, set_updates, set_tray, set_autostart, report::save_report, watch_folder, pause_hotkey, set_hotkey, last_frame_url,
+        .invoke_handler(tauri::generate_handler![status, capture, allow_capture, set_priority, set_matcher, set_checking, set_overlay, dismiss_overlay, shown_route, set_updates, set_tray, set_autostart, report::save_report, watch_folder, pause_hotkey, set_hotkey, last_frame_url,
             update::check_update,
             update::install_update,
             update::open_downloads])
