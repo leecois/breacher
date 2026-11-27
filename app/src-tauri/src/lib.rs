@@ -161,7 +161,7 @@ fn status_of(shell: &Shell) -> ShellStatus {
 fn next_step(shell: &Shell) -> String {
     match shell.hotkey.lock().unwrap().active {
         Some(active) => format!("then press {}", hotkey::label(&active)),
-        None => "after choosing a hotkey to press there".to_string(),
+        None => "then capture again".to_string(),
     }
 }
 
