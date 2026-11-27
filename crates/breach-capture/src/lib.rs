@@ -66,7 +66,34 @@ pub struct Captured {
     pub logical_units: bool,
     /// True when no game window was found and the primary display was captured instead.
     pub fallback: bool,
+    /// The window this frame came from, for looking at it again; `None` for a display.
+    pub again: Option<Source>,
     pub capture_ms: f32,
+}
+
+/// A window that was captured once and can be looked at again without searching for it.
+#[derive(Clone)]
+pub struct Source(xcap::Window);
+
+impl Source {
+    pub fn grab(&self) -> Result<Captured, CaptureError> {
+        if self.0.is_minimized().unwrap_or(true) {
+            return Err(CaptureError::Minimised);
+        }
+        grab_window(&self.0)
+    }
+}
+
+/// Whether capturing again and again goes unnoticed: older Windows flashes a border round the window on every capture.
+pub fn recapture_is_quiet() -> bool {
+    #[cfg(windows)]
+    {
+        windows_version::OsVersion::current() >= windows_version::OsVersion::new(10, 0, 0, 20348)
+    }
+    #[cfg(not(windows))]
+    {
+        true
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -195,6 +222,7 @@ fn grab_window(w: &xcap::Window) -> Result<Captured, CaptureError> {
         screen_height: w.height().map_err(backend)?,
         logical_units: cfg!(target_os = "macos"),
         fallback: false,
+        again: Some(Source(w.clone())),
         capture_ms: t.elapsed().as_secs_f32() * 1e3,
     })
 }
@@ -218,6 +246,7 @@ fn grab_display(index: usize) -> Result<Captured, CaptureError> {
         screen_height: m.height().map_err(backend)?,
         logical_units: cfg!(target_os = "macos"),
         fallback: false,
+        again: None,
         capture_ms: t.elapsed().as_secs_f32() * 1e3,
     })
 }

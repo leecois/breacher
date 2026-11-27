@@ -16,3 +16,6 @@ serde_json = { workspace = true }
 
 [lints]
 workspace = true
+
+[target."cfg(windows)".dependencies]
+windows-version = "0.1.7"
