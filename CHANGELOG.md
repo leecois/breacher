@@ -6,6 +6,17 @@ Notable changes for people who use Breacher. The format follows
 
 ## Unreleased
 
+## 0.2.9 - 2026-11-28
+
+### Changed
+
+- Picks are looked for every 0.4 seconds, where it was 0.7, so the route keeps up with fast play.
+
+### Fixed
+
+- The route leaves the moment the game has settled every daemon. It could stay up to five seconds
+  over the screen that follows a breach, which was sometimes taken for the breach itself.
+
 ## 0.2.8 - 2026-11-28
 
 ### Added

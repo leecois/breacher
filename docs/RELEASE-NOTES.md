@@ -1,3 +1,12 @@
+## New in 0.2.9
+
+- **Keeps up with fast play.** Breacher now looks at the game every 0.4 seconds while a route is
+  drawn, where it was 0.7, so the ring moves to the next pick sooner.
+- **Leaves at the end.** The route is taken down the moment the game has settled every daemon. It
+  used to linger for up to five seconds over the screen that follows a breach.
+- The log now records what the game did with each daemon and, at the end, the result next to what
+  the route promised. A saved report keeps the looks at which something happened.
+
 ## New in 0.2.8
 
 - **Follows your picks.** While a route is drawn over the game, Breacher keeps looking at the
