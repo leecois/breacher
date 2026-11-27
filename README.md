@@ -31,7 +31,8 @@ the download page. "Look for updates at start" in the window turns the check off
 There are three ways to give Breacher a screen:
 
 1. **Hotkey** (`Ctrl Shift B`, `⌘ ⇧ B` on macOS): captures the game window, shows the route in the
-   app and, if enabled, draws it over the game. When another program already holds that
+   app and, if enabled, draws it over the game. The route stays there until the breach screen
+   closes. When another program already holds that
    combination, Breacher takes the next free one and says which; **Change** sets your own.
 2. **Watched folder**: point it at the folder where the game, its launcher or the OS saves
    screenshots; new files are read as they appear. Needs no capture permission.
