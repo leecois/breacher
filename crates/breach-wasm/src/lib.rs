@@ -3,7 +3,7 @@
 use breach_core::api::{self, Response};
 use breach_core::glyph::Templates;
 use breach_core::image::{Frame, PixelFormat};
-use breach_core::plan::{plan, PlanOptions};
+use breach_core::plan::{plan, rule_check, PlanOptions};
 use breach_core::reader::{ReadOptions, Reading};
 use std::alloc::{alloc, dealloc, Layout};
 use std::sync::OnceLock;
@@ -98,4 +98,27 @@ pub unsafe extern "C" fn bp_plan(
     };
     let p = plan(&reading, &plan_opt);
     out(serde_json::to_string(&Response::Ok { reading, plan: p }).unwrap())
+}
+
+/// Finds the rule check an earlier reading offers. Safety: both pointers must be readable for their lengths.
+#[no_mangle]
+pub unsafe extern "C" fn bp_check(
+    reading: *const u8,
+    reading_len: usize,
+    opts: *const u8,
+    opts_len: usize,
+) -> *mut u8 {
+    let plan_opt = match unsafe { options(opts, opts_len) } {
+        Ok(o) => o.plan,
+        Err(e) => return error(e),
+    };
+    let bytes = unsafe { std::slice::from_raw_parts(reading, reading_len) };
+    let reading: Reading = match serde_json::from_slice(bytes) {
+        Ok(r) => r,
+        Err(e) => return error(format!("bad reading: {e}")),
+    };
+    out(match rule_check(&reading, &plan_opt) {
+        Some(check) => serde_json::json!({ "status": "ok", "check": check }).to_string(),
+        None => serde_json::json!({ "status": "none" }).to_string(),
+    })
 }

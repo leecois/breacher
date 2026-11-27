@@ -86,6 +86,12 @@ pub enum Matcher {
     Strict,
     /// The daemon must be uploaded under all three rules above. Safe whatever the game does.
     Unanimous,
+    /// Substring matching has been ruled out: uploaded under both rules that remain.
+    NotSubstring,
+    /// The re-test rule has been ruled out: uploaded under both rules that remain.
+    NotRetest,
+    /// The strict rule has been ruled out: uploaded under both rules that remain.
+    NotStrict,
 }
 
 impl Matcher {
@@ -95,7 +101,30 @@ impl Matcher {
             Matcher::Retest => &[Kind::Retest],
             Matcher::Strict => &[Kind::Strict],
             Matcher::Unanimous => &[Kind::Kmp, Kind::Retest, Kind::Strict],
+            Matcher::NotSubstring => &[Kind::Retest, Kind::Strict],
+            Matcher::NotRetest => &[Kind::Kmp, Kind::Strict],
+            Matcher::NotStrict => &[Kind::Kmp, Kind::Retest],
         }
+    }
+
+    /// The single rules this stands for, in the order substring, retest, strict.
+    pub fn rules(self) -> [bool; 3] {
+        let kinds = self.kinds();
+        [kinds.contains(&Kind::Kmp), kinds.contains(&Kind::Retest), kinds.contains(&Kind::Strict)]
+    }
+
+    /// The matcher that stands for exactly these rules, if there is one.
+    pub fn of(rules: [bool; 3]) -> Option<Matcher> {
+        const ALL: [Matcher; 7] = [
+            Matcher::Substring,
+            Matcher::Retest,
+            Matcher::Strict,
+            Matcher::Unanimous,
+            Matcher::NotSubstring,
+            Matcher::NotRetest,
+            Matcher::NotStrict,
+        ];
+        ALL.into_iter().find(|m| m.rules() == rules)
     }
 }
 
@@ -625,17 +654,37 @@ pub struct Probe {
 impl Probe {
     /// Number of different outcomes among the three rules (2 or 3).
     pub fn outcomes(&self) -> usize {
-        let mut v = [self.substring, self.retest, self.strict];
-        v.sort_unstable();
-        1 + (v[0] != v[1]) as usize + (v[1] != v[2]) as usize
+        self.outcomes_among([true; 3])
     }
+
+    /// Number of different outcomes among the rules still in play (substring, retest, strict).
+    pub fn outcomes_among(&self, rules: [bool; 3]) -> usize {
+        distinct([self.substring, self.retest, self.strict], rules)
+    }
+}
+
+/// How many different values the outcomes of the rules in play take.
+fn distinct(outcomes: [u32; 3], rules: [bool; 3]) -> usize {
+    let mut count = 0;
+    for i in 0..3 {
+        if rules[i] && !(0..i).any(|j| rules[j] && outcomes[j] == outcomes[i]) {
+            count += 1;
+        }
+    }
+    count
 }
 
 /// Most informative probe: three distinct outcomes beat two, then fewer picks; `None` if no route separates the rules.
 pub fn rule_probe(p: &Puzzle, node_budget: u64) -> Option<Probe> {
+    rule_probe_among(p, node_budget, [true; 3])
+}
+
+/// A route whose outcome differs between the rules still in play (substring, retest, strict), as many ways as possible.
+pub fn rule_probe_among(p: &Puzzle, node_budget: u64, rules: [bool; 3]) -> Option<Probe> {
     if p.validate().is_err() || p.daemons.is_empty() {
         return None;
     }
+    let in_play = rules.iter().filter(|r| **r).count();
     let kinds = [Kind::Kmp, Kind::Retest, Kind::Strict];
     let tables: Vec<[Vec<[u8; MAX_CODES]>; 3]> = p
         .daemons
@@ -655,6 +704,8 @@ pub fn rule_probe(p: &Puzzle, node_budget: u64) -> Option<Probe> {
         best: Option<Probe>,
         nodes: u64,
         budget: u64,
+        rules: [bool; 3],
+        in_play: usize,
     }
     impl Walk<'_> {
         fn go(&mut self, line: usize, is_row: bool, used: u128, st: &[[u8; 3]], done: [u32; 3]) {
@@ -662,9 +713,11 @@ pub fn rule_probe(p: &Puzzle, node_budget: u64) -> Option<Probe> {
             if self.nodes > self.budget || self.path.len() == self.p.buffer {
                 return;
             }
-            // nothing shorter than the best three-way probe can be beaten by going deeper
+            // a probe that already separates every rule in play cannot be beaten by going deeper
             if let Some(b) = &self.best {
-                if b.outcomes() == 3 && self.path.len() + 1 >= b.path.len() {
+                if b.outcomes_among(self.rules) == self.in_play
+                    && self.path.len() + 1 >= b.path.len()
+                {
                     return;
                 }
             }
@@ -693,19 +746,18 @@ pub fn rule_probe(p: &Puzzle, node_budget: u64) -> Option<Probe> {
                     }
                 }
                 self.path.push(cell as u16);
-                if !(done2[0] == done2[1] && done2[1] == done2[2]) {
+                if distinct(done2, self.rules) > 1 {
                     let cand = Probe {
                         path: self.path.clone(),
                         substring: done2[0],
                         retest: done2[1],
                         strict: done2[2],
                     };
+                    let rank =
+                        |x: &Probe| (x.outcomes_among(self.rules), std::cmp::Reverse(x.path.len()));
                     let better = match &self.best {
                         None => true,
-                        Some(b) => {
-                            (cand.outcomes(), std::cmp::Reverse(cand.path.len()))
-                                > (b.outcomes(), std::cmp::Reverse(b.path.len()))
-                        }
+                        Some(b) => rank(&cand) > rank(b),
                     };
                     if better {
                         self.best = Some(cand);
@@ -716,8 +768,16 @@ pub fn rule_probe(p: &Puzzle, node_budget: u64) -> Option<Probe> {
             }
         }
     }
-    let mut w =
-        Walk { p, tables: &tables, path: Vec::new(), best: None, nodes: 0, budget: node_budget };
+    let mut w = Walk {
+        p,
+        tables: &tables,
+        path: Vec::new(),
+        best: None,
+        nodes: 0,
+        budget: node_budget,
+        rules,
+        in_play,
+    };
     w.go(0, true, 0, &vec![[0u8; 3]; p.daemons.len()], [0; 3]);
     w.best
 }
@@ -883,7 +943,15 @@ mod tests {
                 .map(|_| (0..2 + rng.below(3)).map(|_| rng.below(codes) as u8).collect())
                 .collect();
             let p = Puzzle::square(n, cells, seqs, 3 + rng.below(4));
-            for m in [Matcher::Substring, Matcher::Retest, Matcher::Strict, Matcher::Unanimous] {
+            for m in [
+                Matcher::Substring,
+                Matcher::Retest,
+                Matcher::Strict,
+                Matcher::Unanimous,
+                Matcher::NotSubstring,
+                Matcher::NotRetest,
+                Matcher::NotStrict,
+            ] {
                 let want = brute(&p, m);
                 for dp in [true, false] {
                     let got = solve_with(
@@ -1078,6 +1146,34 @@ mod tests {
         }
         assert!(found > 20, "probes found in only {found} of 200 puzzles");
         let _ = three;
+    }
+
+    #[test]
+    fn a_probe_among_two_rules_separates_exactly_those() {
+        let mut rng = Rng(0x7777_1234_ABCD_0001);
+        let mut found = 0;
+        for _ in 0..200 {
+            let n = 5;
+            let cells: Vec<u8> = (0..n * n).map(|_| rng.below(4) as u8).collect();
+            let seqs: Vec<Vec<u8>> = (0..3)
+                .map(|_| (0..2 + rng.below(3)).map(|_| rng.below(4) as u8).collect())
+                .collect();
+            let p = Puzzle::square(n, cells, seqs, 6);
+            for pair in [Matcher::NotSubstring, Matcher::NotRetest, Matcher::NotStrict] {
+                let rules = pair.rules();
+                if let Some(probe) = rule_probe_among(&p, 2_000_000, rules) {
+                    found += 1;
+                    assert_eq!(probe.outcomes_among(rules), 2);
+                    let seen = [Matcher::Substring, Matcher::Retest, Matcher::Strict]
+                        .map(|m| verify(&p, &probe.path, m).unwrap().uploaded);
+                    assert_eq!(seen, [probe.substring, probe.retest, probe.strict]);
+                }
+            }
+        }
+        assert!(found > 20, "probes found in only {found} of 600 searches");
+        assert_eq!(Matcher::of([true, true, false]), Some(Matcher::NotStrict));
+        assert_eq!(Matcher::of([false, false, false]), None);
+        assert_eq!(Matcher::of(Matcher::Unanimous.rules()), Some(Matcher::Unanimous));
     }
 
     #[test]

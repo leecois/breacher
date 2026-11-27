@@ -158,19 +158,19 @@ pub fn plan_from(
             other => other,
         }
     };
-    let (main, main_matcher, optimistic, proven) = match opt.matcher {
-        Some(m) => {
-            let s = solve(m)?;
-            let proven = s.proven;
-            (s, m, None, proven)
-        }
-        None => {
-            let safe = solve(Matcher::Unanimous)?;
-            let best = solve(Matcher::Substring)?;
-            let proven = safe.proven && best.proven;
-            let alt = (best.reward > safe.reward).then_some(best);
-            (safe, Matcher::Unanimous, alt, proven)
-        }
+    let known = opt.matcher.unwrap_or(Matcher::Unanimous);
+    let in_play = known.rules();
+    let (main, main_matcher, optimistic, proven) = if in_play.iter().filter(|r| **r).count() == 1 {
+        let s = solve(known)?;
+        let proven = s.proven;
+        (s, known, None, proven)
+    } else {
+        let safe = solve(known)?;
+        // plain substring matching is the most generous rule: its route is worth offering while it is in play
+        let best = if in_play[0] { Some(solve(Matcher::Substring)?) } else { None };
+        let proven = safe.proven && best.as_ref().is_none_or(|b| b.proven);
+        let alt = best.filter(|b| b.reward > safe.reward);
+        (safe, known, alt, proven)
     };
     let resumed = |mut r: Route| {
         r.done = start.len();
@@ -184,6 +184,61 @@ pub fn plan_from(
         proven,
         solve_us: t.us(),
     })
+}
+
+/// One way a rule check can turn out.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Outcome {
+    /// Daemons, by original index, that the game uploads in this case.
+    pub uploaded: Vec<usize>,
+    /// What is known about the rule once this has been seen.
+    pub then: Matcher,
+}
+
+/// A route to play once, chosen so that what uploads tells the wrong-pick rules apart.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RuleCheck {
+    pub route: Route,
+    /// Every outcome the rules still in play predict, the one that uploads most first.
+    pub outcomes: Vec<Outcome>,
+}
+
+/// The rule check this screen offers, given what `opt.matcher` already says about the rule. `None` when the rule is settled or this screen cannot tell the rest apart.
+pub fn rule_check(reading: &Reading, opt: &PlanOptions) -> Option<RuleCheck> {
+    let in_play = opt.matcher.unwrap_or(Matcher::Unanimous).rules();
+    if in_play.iter().filter(|r| **r).count() < 2 {
+        return None;
+    }
+    let puzzle = Puzzle::square(
+        reading.n,
+        reading.matrix.clone(),
+        reading.sequences.iter().take(solver::MAX_DAEMONS).cloned().collect(),
+        opt.buffer.unwrap_or(reading.buffer).min(solver::MAX_BUFFER),
+    );
+    let probe = solver::rule_probe_among(&puzzle, opt.node_budget, in_play)?;
+    let masks = [probe.substring, probe.retest, probe.strict];
+    let mut outcomes: Vec<Outcome> = Vec::new();
+    for i in (0..3).filter(|&i| in_play[i]) {
+        if (0..i).any(|j| in_play[j] && masks[j] == masks[i]) {
+            continue;
+        }
+        let agree = [0, 1, 2].map(|j| in_play[j] && masks[j] == masks[i]);
+        outcomes.push(Outcome {
+            uploaded: (0..puzzle.daemons.len()).filter(|d| masks[i] >> d & 1 == 1).collect(),
+            then: Matcher::of(agree)?,
+        });
+    }
+    outcomes.sort_by_key(|o| std::cmp::Reverse(o.uploaded.len()));
+    let steps = probe
+        .path
+        .iter()
+        .map(|&cell| {
+            let (row, col) = (cell as usize / puzzle.cols, cell as usize % puzzle.cols);
+            let (x, y) = reading.geometry.cell_center(row, col);
+            Step { row, col, code: puzzle.cells[cell as usize], x, y, uploads: Vec::new() }
+        })
+        .collect();
+    Some(RuleCheck { route: Route { steps, ..Route::default() }, outcomes })
 }
 
 #[cfg(test)]
@@ -234,6 +289,38 @@ mod tests {
             "not a legal first pick"
         );
         assert!(plan_from(&r, &PlanOptions::default(), &[(0, 7)]).is_err(), "outside the matrix");
+    }
+
+    #[test]
+    fn a_rule_check_narrows_the_rule_step_by_step() {
+        // the only way to A B here is A A B: it uploads unless a wrong pick resets and is dropped
+        let r = reading(3, vec![0, 2, 2, 0, 1, 2, 2, 2, 2], vec![vec![0, 1]], 3);
+        let first = rule_check(&r, &PlanOptions::default()).expect("this screen tells rules apart");
+        let cells: Vec<(usize, usize)> = first.route.steps.iter().map(|s| (s.row, s.col)).collect();
+        assert_eq!(cells, vec![(0, 0), (1, 0), (1, 1)]);
+        assert_eq!(first.outcomes.len(), 2);
+        assert_eq!(
+            (first.outcomes[0].uploaded.clone(), first.outcomes[0].then),
+            (vec![0], Matcher::NotStrict)
+        );
+        assert_eq!(
+            (first.outcomes[1].uploaded.clone(), first.outcomes[1].then),
+            (vec![], Matcher::Strict)
+        );
+        let known: Vec<Matcher> = first.outcomes.iter().map(|o| o.then).collect();
+        assert!(known.iter().all(|m| m.rules().iter().filter(|x| **x).count() < 3));
+        // every rule in play is predicted by exactly one outcome
+        for rule in 0..3 {
+            assert_eq!(known.iter().filter(|m| m.rules()[rule]).count(), 1, "rule {rule}");
+        }
+        // once the rule is settled there is nothing left to check
+        let settled = PlanOptions { matcher: Some(Matcher::Retest), ..PlanOptions::default() };
+        assert_eq!(rule_check(&r, &settled), None);
+        // with the strict rule ruled out this screen has nothing more to tell, and the daemon counts as safe
+        let narrowed = PlanOptions { matcher: Some(Matcher::NotStrict), ..PlanOptions::default() };
+        assert_eq!(rule_check(&r, &narrowed), None);
+        assert_eq!(plan(&r, &narrowed).route.uploaded, vec![0]);
+        assert_eq!(plan(&r, &PlanOptions::default()).route.uploaded, Vec::<usize>::new());
     }
 
     #[test]
