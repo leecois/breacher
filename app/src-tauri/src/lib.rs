@@ -15,9 +15,11 @@ use breach_core::solver::Matcher;
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
+use tauri::menu::MenuBuilder;
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{
     AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, PhysicalPosition, PhysicalSize,
     State, WindowEvent,
@@ -44,6 +46,8 @@ struct Settings {
     hotkey: Option<String>,
     /// Ask the release page for a newer version at start.
     updates: bool,
+    /// Keep running in the tray, hotkey and all, when the main window is closed.
+    tray: bool,
 }
 
 impl Default for Settings {
@@ -59,6 +63,7 @@ impl Default for Settings {
             last_buffer: None,
             hotkey: None,
             updates: true,
+            tray: true,
         }
     }
 }
@@ -84,6 +89,8 @@ struct Shell {
     hotkey: Mutex<hotkey::Binding>,
     /// This program's own version, as the updater compares it.
     version: String,
+    /// Whether the system gave a tray icon: without one a closed window could not be brought back.
+    tray: AtomicBool,
 }
 
 #[derive(Clone, Serialize)]
@@ -118,6 +125,8 @@ struct ShellStatus {
     watch_dir: Option<String>,
     overlay: bool,
     updates: bool,
+    /// Whether closing the window keeps the program in the tray; `None` where there is no tray.
+    tray: Option<bool>,
     log_path: String,
 }
 
@@ -167,6 +176,7 @@ fn status_of(shell: &Shell) -> ShellStatus {
         watch_dir: settings.watch_dir.map(|p| p.display().to_string()),
         overlay: settings.overlay,
         updates: settings.updates,
+        tray: shell.tray.load(Ordering::SeqCst).then_some(settings.tray),
         log_path: shell.log_path.display().to_string(),
     }
 }
@@ -524,6 +534,13 @@ fn dismiss_overlay(app: AppHandle, shell: State<Shell>) {
 }
 
 #[tauri::command]
+fn set_tray(shell: State<Shell>, enabled: bool) -> ShellStatus {
+    shell.settings.lock().unwrap().tray = enabled;
+    save(&shell);
+    status_of(&shell)
+}
+
+#[tauri::command]
 fn set_updates(shell: State<Shell>, enabled: bool) -> ShellStatus {
     shell.settings.lock().unwrap().updates = enabled;
     save(&shell);
@@ -640,17 +657,49 @@ fn selftest_hotkey(app: &AppHandle) -> String {
     format!("{back} | change: bare key refused={refused} kept={kept}, bound {changed} released={released}, back to {back}")
 }
 
+fn show_main(app: &AppHandle) {
+    if let Some(main) = app.get_webview_window("main") {
+        let _ = main.unminimize();
+        let _ = main.show();
+        let _ = main.set_focus();
+    }
+}
+
+/// Puts the program in the tray: a click brings the window back, the menu can end the program.
+fn add_tray(app: &AppHandle) -> tauri::Result<()> {
+    let menu = MenuBuilder::new(app)
+        .text("open", "Open Breacher")
+        .separator()
+        .text("quit", "Quit Breacher")
+        .build()?;
+    let mut tray = TrayIconBuilder::with_id("breacher")
+        .tooltip("Breacher")
+        .menu(&menu)
+        .show_menu_on_left_click(false)
+        .on_menu_event(|app, event| match event.id.as_ref() {
+            "open" => show_main(app),
+            "quit" => app.exit(0),
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            let released = MouseButtonState::Up;
+            if matches!(event, TrayIconEvent::Click { button: MouseButton::Left, button_state, .. } if button_state == released)
+            {
+                show_main(tray.app_handle());
+            }
+        });
+    if let Some(icon) = app.default_window_icon() {
+        tray = tray.icon(icon.clone());
+    }
+    tray.build(app).map(|_| ())
+}
+
 pub fn run() {
     let mut builder = tauri::Builder::default();
     // a self-test must run even while the player has Breacher open
     if std::env::var_os("BREACHER_SELFTEST").is_none() {
-        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            if let Some(main) = app.get_webview_window("main") {
-                let _ = main.unminimize();
-                let _ = main.show();
-                let _ = main.set_focus();
-            }
-        }));
+        builder =
+            builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_main(app)));
     }
     builder
         .plugin(tauri_plugin_dialog::init())
@@ -668,9 +717,22 @@ pub fn run() {
                 .build(),
         )
         .on_window_event(|window, event| {
-            // the hidden overlay window would otherwise keep the process, and its hotkey, alive
-            if window.label() == "main" && matches!(event, WindowEvent::Destroyed) {
-                window.app_handle().exit(0);
+            if window.label() != "main" {
+                return;
+            }
+            match event {
+                WindowEvent::CloseRequested { api, .. } => {
+                    let shell = window.state::<Shell>();
+                    let stay = shell.settings.lock().unwrap().tray;
+                    // with a tray icon to come back from, closing only puts the window away
+                    if stay && shell.tray.load(Ordering::SeqCst) {
+                        api.prevent_close();
+                        let _ = window.hide();
+                    }
+                }
+                // the hidden overlay window would otherwise keep the process, and its hotkey, alive
+                WindowEvent::Destroyed => window.app_handle().exit(0),
+                _ => {}
             }
         })
         .setup(|app| {
@@ -693,7 +755,13 @@ pub fn run() {
                 last_file: Mutex::new(None),
                 hotkey: Mutex::new(hotkey::Binding::default()),
                 version: app.package_info().version.to_string(),
+                tray: AtomicBool::new(false),
             });
+            let tray = add_tray(app.handle());
+            app.state::<Shell>().tray.store(tray.is_ok(), Ordering::SeqCst);
+            if let Err(e) = tray {
+                log(&app.state::<Shell>(), &format!("no tray icon, so closing the window ends the program: {e}"));
+            }
             let mut refusals = Vec::new();
             let binding = hotkey::bind(wanted, |s| match app.global_shortcut().register(s) {
                 Ok(()) => true,
@@ -770,16 +838,23 @@ pub fn run() {
                         let outcome = tauri::async_runtime::block_on(update::install_update(handle.clone()));
                         println!("selftest: the update did not install: {outcome:?}");
                     }
-                    // closing the main window has to end the process, as it does for the player
-                    match handle.get_webview_window("main") {
-                        Some(main) => drop(main.close()),
-                        None => handle.exit(0),
+                    // closing the window must end the process, or with the tray only put the window away
+                    let Some(main) = handle.get_webview_window("main") else {
+                        return handle.exit(0);
+                    };
+                    let tray = status_of(&handle.state::<Shell>()).tray;
+                    println!("selftest: closing the window; kept in the tray: {tray:?}");
+                    let _ = main.close();
+                    if tray == Some(true) {
+                        std::thread::sleep(Duration::from_millis(600));
+                        println!("selftest: still running, window visible: {:?}", main.is_visible());
+                        handle.exit(0);
                     }
                 });
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![status, capture, allow_capture, set_priority, set_matcher, set_overlay, dismiss_overlay, set_updates, watch_folder, pause_hotkey, set_hotkey, last_frame_url,
+        .invoke_handler(tauri::generate_handler![status, capture, allow_capture, set_priority, set_matcher, set_overlay, dismiss_overlay, set_updates, set_tray, watch_folder, pause_hotkey, set_hotkey, last_frame_url,
             update::check_update,
             update::install_update,
             update::open_downloads])
