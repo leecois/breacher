@@ -44,6 +44,19 @@ jobs:
           npm ci
           npm run tauri build -- --bundles nsis
 
+      # reported, not required: the hosted machine's desktop session is not the player's
+      - name: Desktop self-test
+        shell: bash
+        timeout-minutes: 3
+        continue-on-error: true
+        env:
+          BREACHER_CONFIG: selftest/settings.json
+          BREACHER_SELFTEST: corpus/cpah/0.png
+        run: |
+          ./target/release/breacher.exe > selftest.txt 2>&1 || echo "exit code $?"
+          cat selftest.txt selftest/breacher.log
+          grep -q "ok 6x6" selftest/breacher.log
+
       - name: Collect files
         shell: bash
         run: |
