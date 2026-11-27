@@ -54,9 +54,11 @@ pub fn write(app: &AppHandle, stamp: &str) -> Result<(PathBuf, Vec<&'static str>
         files.push(put("answer.json", &json)?);
     }
     let looks = shell.looks.lock().unwrap().clone();
-    for (i, (seconds, frame)) in looks.iter().enumerate() {
-        let file = dir.join(format!("look-{:02}-at-{seconds}s.jpg", i + 1));
-        std::fs::write(file, frame).map_err(|e| e.to_string())?;
+    for (i, look) in looks.iter().enumerate() {
+        let (whole, tenth) = (look.at / 10, look.at % 10);
+        let seen = if look.breach { "breach" } else { "other" };
+        let file = dir.join(format!("look-{:02}-at-{whole}.{tenth}s-{seen}.jpg", i + 1));
+        std::fs::write(file, &look.jpeg).map_err(|e| e.to_string())?;
     }
     if !looks.is_empty() {
         files.push("looks");

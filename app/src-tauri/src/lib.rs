@@ -434,12 +434,14 @@ fn follow_breach(app: &AppHandle, game: &breach_capture::Source, generation: u64
     let started = Instant::now();
     let ours = || shell.generation.load(Ordering::SeqCst) == generation;
     shell.looks.lock().unwrap().clear();
+    // one letter per look, for the log: breach, other, minimised, failed
+    let mut trace = String::new();
     let why = follow::until_gone(|| {
         std::thread::sleep(follow::INTERVAL);
         if !ours() {
             return None;
         }
-        Some(match game.grab() {
+        let look = match game.grab() {
             Ok(cap) => {
                 let frame = Frame::new(
                     cap.width as usize,
@@ -447,12 +449,16 @@ fn follow_breach(app: &AppHandle, game: &breach_capture::Source, generation: u64
                     PixelFormat::Rgba8,
                     &cap.rgba,
                 );
-                if api::breach_on_screen(&frame) {
-                    // a breach being played is what a report about it needs to show
-                    let seconds = started.elapsed().as_secs() as u32;
-                    follow::keep(&mut shell.looks.lock().unwrap(), seconds, || {
-                        jpeg(cap.width, cap.height, &cap.rgba, 90)
-                    });
+                let breach = api::breach_on_screen(&frame);
+                // a breach being played, and how it ends, is what a report about it needs to show
+                if let Some(jpeg) = jpeg(cap.width, cap.height, &cap.rgba, 88) {
+                    let at = (started.elapsed().as_secs_f32() * 10.0) as u32;
+                    follow::keep(
+                        &mut shell.looks.lock().unwrap(),
+                        follow::Kept { at, breach, jpeg },
+                    );
+                }
+                if breach {
                     follow::Look::Breach
                 } else {
                     follow::Look::Other
@@ -460,13 +466,23 @@ fn follow_breach(app: &AppHandle, game: &breach_capture::Source, generation: u64
             }
             Err(CaptureError::Minimised) => follow::Look::Minimised,
             Err(_) => follow::Look::Failed,
-        })
+        };
+        trace.push(match look {
+            follow::Look::Breach => 'B',
+            follow::Look::Other => 'o',
+            follow::Look::Minimised => 'm',
+            follow::Look::Failed => 'x',
+        });
+        Some(look)
     });
     if let Some(why) = why.filter(|_| ours()) {
         clear_overlay(app);
         log(
             &shell,
-            &format!("route taken down after {:.0} s: {why}", started.elapsed().as_secs_f32()),
+            &format!(
+                "route taken down after {:.0} s: {why}; looks {trace}",
+                started.elapsed().as_secs_f32()
+            ),
         );
     }
 }
