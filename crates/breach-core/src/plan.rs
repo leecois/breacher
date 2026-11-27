@@ -6,10 +6,11 @@ use crate::solver::{self, Daemon, Matcher, Puzzle, Solution};
 use serde::{Deserialize, Serialize};
 
 /// How daemons are ranked against each other.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Priority {
     /// Upload as many daemons as possible; later (harder) daemons win ties.
+    #[default]
     Count,
     /// A later daemon outranks every combination of earlier ones (datamines: v3 before v2 before v1).
     Tier,

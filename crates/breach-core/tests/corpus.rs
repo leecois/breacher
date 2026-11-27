@@ -1,8 +1,9 @@
 //! Regression tests on the labelled capture corpus.
 use breach_core::api::breach_on_screen;
+use breach_core::follow::{Followed, Sight, Step};
 use breach_core::glyph::Templates;
 use breach_core::image::{Frame, PixelFormat};
-use breach_core::plan::{plan, PlanOptions};
+use breach_core::plan::{plan, PlanOptions, Priority};
 use breach_core::progress::{advance, look, Fate, Mark};
 use breach_core::reader::Geometry;
 use breach_core::reader::{read, ReadOptions, Reading, Stage};
@@ -148,6 +149,8 @@ fn a_breach_being_played_is_still_seen() {
 
 const CYAN: image::Rgb<u8> = image::Rgb([85, 220, 232]);
 const CODE: image::Rgb<u8> = image::Rgb([215, 245, 90]);
+const GREEN: image::Rgb<u8> = image::Rgb([30, 215, 120]);
+const RED: image::Rgb<u8> = image::Rgb([240, 70, 75]);
 
 fn fill(img: &mut RgbImage, cx: f32, cy: f32, hw: f32, hh: f32, colour: image::Rgb<u8>) {
     for y in (cy - hh) as u32..=(cy + hh) as u32 {
@@ -222,8 +225,6 @@ fn an_untouched_screen_shows_no_pick() {
 /// The game lays a green bar over a daemon it has installed and a red one over a daemon that has failed.
 #[test]
 fn the_bars_over_settled_daemons_are_read() {
-    const GREEN: image::Rgb<u8> = image::Rgb([30, 215, 120]);
-    const RED: image::Rgb<u8> = image::Rgb([240, 70, 75]);
     for (name, img, label) in corpus() {
         if label.negative {
             continue;
@@ -299,6 +300,86 @@ fn a_played_route_is_followed_pick_by_pick() {
             played = advance(n, &played, &seen).unwrap_or_else(|| panic!("{name}: pick {}", k + 1));
             assert_eq!(played, route[..=k], "{name}: pick {}", k + 1);
         }
+    }
+}
+
+/// A breach is followed from frames alone: a pick on the route, one off it, and the bars that end it.
+#[test]
+fn a_breach_is_followed_from_its_frames_to_its_end() {
+    let see = |followed: &mut Followed, img: &RgbImage| {
+        let (w, h) = (img.width() as usize, img.height() as usize);
+        followed.look(&Frame::new(w, h, PixelFormat::Rgb8, img.as_raw()), Priority::Count, None)
+    };
+    for (name, img, label) in corpus() {
+        if label.negative {
+            continue;
+        }
+        let reading = run(&img).unwrap();
+        let (g, n) = (reading.geometry.clone(), reading.n);
+        let route = plan(&reading, &PlanOptions::default()).route;
+        if route.steps.len() < 2 {
+            continue;
+        }
+        let mut followed = Followed::new(reading.clone(), route.clone(), false);
+        let untouched = see(&mut followed, &img);
+        assert_eq!((untouched.sight, untouched.step), (Sight::Breach, None), "{name}");
+
+        let first = route.steps[0].row * n + route.steps[0].col;
+        let mut one = img.clone();
+        mark_cell(&mut one, &g, first, Mark::Flash);
+        mark_slot(&mut one, &g, 0, Mark::Flash);
+        let seen = see(&mut followed, &one);
+        assert_eq!((seen.sight, seen.step), (Sight::Breach, Some(Step::Onward)), "{name}");
+        assert_eq!(followed.route.done, 1, "{name}");
+
+        // the second pick goes to another cell of the same column than the route asked for
+        let next = route.steps[1].row * n + route.steps[1].col;
+        let wrong = (0..n).map(|r| r * n + first % n).find(|c| *c != first && *c != next).unwrap();
+        let mut two = img.clone();
+        mark_cell(&mut two, &g, first, Mark::Used);
+        mark_slot(&mut two, &g, 0, Mark::Used);
+        mark_cell(&mut two, &g, wrong, Mark::Flash);
+        mark_slot(&mut two, &g, 1, Mark::Flash);
+        let seen = see(&mut followed, &two);
+        assert_eq!(seen.step, Some(Step::Replanned), "{name}");
+        assert_eq!(followed.played, vec![first, wrong], "{name}");
+        let drawn: Vec<usize> = followed.route.steps.iter().map(|s| s.row * n + s.col).collect();
+        assert_eq!((&drawn[..2], followed.route.done), (&[first, wrong][..], 2), "{name}");
+
+        // the matrix gives way to another panel: for now that is neither a breach nor its end
+        let (cx, cy) = g.cell_center(n / 2, n / 2);
+        let half = n as f32 / 2.0;
+        let mut gone = two.clone();
+        fill(&mut gone, cx, cy, half * g.px, half * g.py, image::Rgb([8, 10, 18]));
+        let seen = see(&mut followed, &gone);
+        assert_eq!(
+            (seen.sight, seen.step, followed.played.len()),
+            (Sight::Other, None, 2),
+            "{name}"
+        );
+
+        // the game lays a bar over every daemon, and the breach is over
+        let mut want = Vec::new();
+        for (i, &row) in g.seq_rows.iter().enumerate() {
+            let installed = i % 2 == 0;
+            want.push((i + 1, if installed { Fate::Installed } else { Fate::Failed }));
+            let width = 9.0 * g.seq_pitch_x;
+            let colour = if installed { GREEN } else { RED };
+            fill(
+                &mut gone,
+                g.seq_x0 + width / 2.0 - g.seq_pitch_x,
+                row,
+                width / 2.0,
+                g.py * 0.4,
+                colour,
+            );
+        }
+        let seen = see(&mut followed, &gone);
+        assert_eq!((seen.sight, &seen.settled), (Sight::Over, &want), "{name}");
+        let (installed, failed) = followed.outcome().unwrap();
+        assert_eq!(installed.len() + failed.len(), reading.sequences.len(), "{name}");
+        // the same frame again is no news
+        assert!(see(&mut followed, &gone).settled.is_empty());
     }
 }
 

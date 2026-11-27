@@ -1,6 +1,7 @@
 //! WebAssembly surface of the core: every result is a little-endian `u32` length followed by that many bytes of JSON.
 #![allow(clippy::missing_safety_doc)]
 use breach_core::api::{self, Response};
+use breach_core::follow::Followed;
 use breach_core::glyph::Templates;
 use breach_core::image::{Frame, PixelFormat};
 use breach_core::plan::{plan, rule_check, PlanOptions};
@@ -121,4 +122,51 @@ pub unsafe extern "C" fn bp_check(
         Some(check) => serde_json::json!({ "status": "ok", "check": check }).to_string(),
         None => serde_json::json!({ "status": "none" }).to_string(),
     })
+}
+
+/// A breach being followed, as the page keeps it between looks, with the choices its route was planned under.
+#[derive(serde::Deserialize)]
+struct Following {
+    #[serde(flatten)]
+    followed: Followed,
+    #[serde(default)]
+    priority: breach_core::plan::Priority,
+    #[serde(default)]
+    matcher: Option<breach_core::solver::Matcher>,
+}
+
+/// Looks at a later frame of a screen read earlier and returns the breach as it now stands. Safety: `rgba` must point at `width * height * 4` readable bytes and `state` at `state_len` readable bytes.
+#[no_mangle]
+pub unsafe extern "C" fn bp_follow(
+    rgba: *const u8,
+    width: usize,
+    height: usize,
+    state: *const u8,
+    state_len: usize,
+) -> *mut u8 {
+    let bytes = unsafe { std::slice::from_raw_parts(state, state_len) };
+    let Following { mut followed, priority, matcher } = match serde_json::from_slice(bytes) {
+        Ok(f) => f,
+        Err(e) => return error(format!("bad state: {e}")),
+    };
+    let data = unsafe { std::slice::from_raw_parts(rgba, width * height * 4) };
+    let frame = Frame::new(width, height, PixelFormat::Rgba8, data);
+    // a route the page planned afresh knows nothing of the picks already made
+    let caught_up = if !followed.played.is_empty() && followed.route.done != followed.played.len() {
+        followed.settle(priority, matcher)
+    } else {
+        None
+    };
+    let looked = followed.look(&frame, priority, matcher);
+    out(serde_json::json!({
+        "status": "ok",
+        "sight": looked.sight,
+        "step": looked.step.or(caught_up),
+        "settled": looked.settled,
+        "route": followed.route,
+        "played": followed.played,
+        "fates": followed.fates,
+        "check": followed.check,
+    })
+    .to_string())
 }

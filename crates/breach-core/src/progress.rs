@@ -2,6 +2,7 @@
 
 use crate::image::Frame;
 use crate::reader::Geometry;
+use serde::{Deserialize, Serialize};
 
 /// What a matrix cell shows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -17,7 +18,8 @@ pub enum Mark {
 }
 
 /// What has become of a daemon.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Fate {
     /// Its sequence is still shown: it can still be uploaded.
     Pending,

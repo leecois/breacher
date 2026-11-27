@@ -2,6 +2,7 @@
 
 pub mod api;
 mod clock;
+pub mod follow;
 pub mod glyph;
 pub mod image;
 pub mod plan;
