@@ -14,15 +14,16 @@ millisecond.
 
 Download the installer from the Releases page and run it. It is not code-signed, so SmartScreen asks
 for confirmation (More info, then Run anyway). Set the game to Windowed Borderless, open a breach and
-press `Ctrl Shift B` before the first pick. The app keeps a log at
-`%APPDATA%\dev.breacher.mk2\breacher.log`.
+press `Ctrl Shift B` before the first pick. The window shows the hotkey in use and lets you change
+it. The app keeps a log at `%APPDATA%\dev.breacher.mk2\breacher.log`.
 
 ## Use
 
 There are three ways to give Breacher a screen:
 
 1. **Hotkey** (`Ctrl Shift B`, `⌘ ⇧ B` on macOS): captures the game window, shows the route in the
-   app and, if enabled, draws it over the game.
+   app and, if enabled, draws it over the game. When another program already holds that
+   combination, Breacher takes the next free one and says which; **Change** sets your own.
 2. **Watched folder**: point it at the folder where the game, its launcher or the OS saves
    screenshots; new files are read as they appear. Needs no capture permission.
 3. **Drop or paste** a screenshot into the window.
