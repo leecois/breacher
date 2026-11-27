@@ -393,6 +393,7 @@ version = "0.2.4"
 dependencies = [
  "serde",
  "serde_json",
+ "windows",
  "windows-version",
  "xcap",
 ]

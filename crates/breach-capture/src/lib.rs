@@ -1,5 +1,7 @@
 //! One-shot screen capture: finds the game window, checks permission without prompting, reports where the frame sits on screen.
 
+pub mod version;
+
 use serde::{Deserialize, Serialize};
 use std::time::Instant;
 
@@ -68,6 +70,8 @@ pub struct Captured {
     pub fallback: bool,
     /// The window this frame came from, for looking at it again; `None` for a display.
     pub again: Option<Source>,
+    /// The version of the program that was looked for, when the window found is its own.
+    pub program: Option<version::Version>,
     pub capture_ms: f32,
 }
 
@@ -173,7 +177,8 @@ fn rank(title: &str, app: &str, needles: &[&str]) -> Option<u8> {
 }
 
 enum Search {
-    Found(xcap::Window),
+    /// The window, and whether it belongs to the program itself and does not merely mention it.
+    Found(xcap::Window, bool),
     /// The application is running, but its only windows are minimised.
     Minimised,
     Missing,
@@ -197,7 +202,7 @@ fn find_window(needles: &[&str]) -> Search {
     }
     // among equals the largest wins: launchers and helper windows share the name
     match shown.into_iter().min_by_key(|(rank, area, _)| (*rank, *area)) {
-        Some((_, _, w)) => Search::Found(w),
+        Some((rank, _, w)) => Search::Found(w, rank == 0),
         None if minimised => Search::Minimised,
         None => Search::Missing,
     }
@@ -223,8 +228,17 @@ fn grab_window(w: &xcap::Window) -> Result<Captured, CaptureError> {
         logical_units: cfg!(target_os = "macos"),
         fallback: false,
         again: Some(Source(w.clone())),
+        program: None,
         capture_ms: t.elapsed().as_secs_f32() * 1e3,
     })
+}
+
+fn grab_found(w: &xcap::Window, own: bool) -> Result<Captured, CaptureError> {
+    let mut captured = grab_window(w)?;
+    if own {
+        captured.program = w.pid().ok().and_then(version::of_process);
+    }
+    Ok(captured)
 }
 
 fn grab_display(index: usize) -> Result<Captured, CaptureError> {
@@ -247,6 +261,7 @@ fn grab_display(index: usize) -> Result<Captured, CaptureError> {
         logical_units: cfg!(target_os = "macos"),
         fallback: false,
         again: None,
+        program: None,
         capture_ms: t.elapsed().as_secs_f32() * 1e3,
     })
 }
@@ -258,12 +273,12 @@ pub fn capture(target: &Target) -> Result<Captured, CaptureError> {
     }
     match target {
         Target::Auto => match find_window(&GAME_HINTS) {
-            Search::Found(w) => grab_window(&w),
+            Search::Found(w, own) => grab_found(&w, own),
             Search::Minimised => Err(CaptureError::Minimised),
             Search::Missing => grab_display(0).map(|c| Captured { fallback: true, ..c }),
         },
         Target::Window(name) => match find_window(&[name.as_str()]) {
-            Search::Found(w) => grab_window(&w),
+            Search::Found(w, own) => grab_found(&w, own),
             Search::Minimised => Err(CaptureError::Minimised),
             Search::Missing => {
                 Err(CaptureError::NoTarget(format!("no open window matches \"{name}\"")))
