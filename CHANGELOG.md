@@ -6,6 +6,15 @@ Notable changes for people who use Breacher. The format follows
 
 ## Unreleased
 
+## 0.2.5 - 2026-11-27
+
+### Added
+
+- The bottom of the window shows the version of Breacher and, after a capture of the game, the
+  version of the game.
+- A tray icon. Closing the window keeps Breacher running there, with the hotkey still working;
+  a click brings the window back and the menu quits. "Stay in the tray when closed" turns it off.
+
 ## 0.2.4 - 2026-11-27
 
 ### Changed

@@ -1,3 +1,12 @@
+## New in 0.2.5
+
+- **Stays in the tray.** Closing the window no longer ends Breacher: it stays in the tray (the
+  icons by the clock, possibly behind the arrow), so the hotkey keeps working while you play. Click
+  the icon to bring the window back; right-click it and choose **Quit Breacher** to end it. Untick
+  "Stay in the tray when closed" to have the close button quit as before.
+- **Versions on show.** The bottom of the window names the Breacher that is running and, after a
+  capture of the game, the version of the game it looked at. Quote both when you report a problem.
+
 ## New in 0.2.4
 
 - **The route leaves when the breach does.** After a hotkey capture Breacher keeps an eye on the
@@ -46,8 +55,8 @@ window does not open, use the installer instead: it fetches the runtime when it 
 ## Install
 
 1. Download `Breacher_…_x64-setup.exe` and run it.
-2. If an earlier version is installed, the installer may say that Breacher is still running, even
-   with no window open. That is the fault fixed in 0.2.2: choose **OK** to let it close the old copy.
+2. If Breacher is running, in the tray or (before 0.2.2) unseen, the installer says so: choose
+   **OK** to let it close the running copy.
 
 ## First start
 
