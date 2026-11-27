@@ -40,12 +40,17 @@ There are three ways to give Breacher a screen:
 
 Capture before the first pick. A breach that has already started is rejected, not guessed at.
 
+When a capture cannot be read, a line over the game says why for a few seconds, so you need not
+leave the game to find out.
+
 Closing the window keeps Breacher in the tray, so the hotkey goes on working while you play. Click
 the tray icon to bring the window back, or choose Quit in its menu. "Stay in the tray when closed"
-turns this off.
+turns this off, and "Start when you sign in" puts Breacher in the tray every time you log on.
 
 The bottom of the window shows which Breacher is running and, after a capture of the game, which
-version of the game it looked at. Both belong in a bug report.
+version of the game it looked at. **Save a report** next to them writes the last frame, what was
+read from it, the log and those versions into a folder under your documents: attach it to a bug
+report.
 
 The same reader and solver are available on the command line:
 
