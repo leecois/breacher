@@ -12,7 +12,7 @@ let recording = false
 
 function onAnswer(a: AnswerEvent): void {
   const frame: FrameInfo = { width: a.frame.width, height: a.frame.height, source: a.frame.source, elapsedMs: a.elapsed_ms }
-  show(a.response, frame, true)
+  show(a.response, frame, true, a.check ?? null)
   // a capture that failed outright has no picture
   if (frame.width) void desktop?.lastFrameUrl().then(url => url && attachImage(frame, url))
 }

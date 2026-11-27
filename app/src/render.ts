@@ -1,7 +1,28 @@
 import { $ } from './dom'
 import { cellName, drawOverlay, drawSheet } from './draw'
 import { shownRoute, state } from './state'
-import { CODES, type FrameInfo, type Plan, type Reading, type Rejection, type Route } from './types'
+import { CODES, settled, type FrameInfo, type Matcher, type Outcome, type Plan, type Reading, type Rejection, type Route } from './types'
+
+/** What the page does when the player acts on something that was drawn. */
+export interface Hooks {
+  replan(): void
+  /** Start or stop spending breaches on checking the wrong-pick rule. */
+  checking(on: boolean): void
+  /** The player said how a rule check turned out, or that they did not play it. */
+  outcome(seen: Outcome | 'other' | 'skipped'): void
+}
+
+const RULE_WORDS: Record<string, string> = {
+  substring: 'does nothing, and overlapping codes still count',
+  retest: 'resets the sequence, which then starts again from that pick',
+  strict: 'resets the sequence and is itself lost',
+}
+
+/** What a rule check found, in words: the rule it settled, or the one it ruled out. */
+export function ruleFinding(known: Matcher): string {
+  if (settled(known)) return `Settled: a wrong pick ${RULE_WORDS[known]}. If routes ever fail to upload what they say, set this back to "Not confirmed yet".`
+  return `Ruled out: a wrong pick ${RULE_WORDS[known.replace('not_', '')]}. The next breach goes on with the check.`
+}
 
 const ms = (v: number): string => (v < 1 ? 'under 1 ms' : v >= 10 ? `${v.toFixed(0)} ms` : `${v.toFixed(1)} ms`)
 
@@ -31,6 +52,7 @@ export function showVersions(known: { app?: string; game?: string } = {}): void 
 }
 
 function caption(reading: Reading, plan: Plan, route: Route): string {
+  if (state.check) return `Rule check: play exactly these ${route.steps.length} picks`
   const wanted = state.wanted.filter(Boolean).length || reading.sequences.length
   return `${route.steps.length} of ${plan.buffer} picks, ${route.uploaded.length} of ${wanted} daemons`
 }
@@ -100,21 +122,27 @@ function renderDaemons(reading: Reading, route: Route, replan: () => void): void
   const list = $<HTMLUListElement>('daemons')
   list.replaceChildren()
   const wantedCount = state.wanted.filter(Boolean).length
-  $<HTMLElement>('daemon-count').textContent = `${route.uploaded.length} of ${wantedCount} uploaded`
+  const check = state.check
+  $<HTMLElement>('daemon-count').textContent = check ? 'Rule check' : `${route.uploaded.length} of ${wantedCount} uploaded`
   reading.sequences.forEach((seq, i) => {
     const li = document.createElement('li')
     const at = route.steps.findIndex(s => s.uploads.includes(i))
     const wanted = state.wanted[i] ?? true
     // a code the matrix lacks makes the daemon impossible, and may mean that code was misread
     const foreign = seq.find(c => !reading.matrix.includes(c))
-    const fate = !wanted
-      ? 'Left out'
-      : at >= 0
-        ? `Uploads at pick ${at + 1}`
-        : foreign !== undefined
-          ? `Needs ${CODES[foreign]}, not in the matrix`
-          : 'Does not fit'
-    li.className = !wanted ? 'off' : at >= 0 ? 'hit' : 'miss'
+    const tested = check?.outcomes.some(o => o.uploaded.includes(i))
+    const fate = check
+      ? tested
+        ? 'Uploads under some rules'
+        : 'Not part of this check'
+      : !wanted
+        ? 'Left out'
+        : at >= 0
+          ? `Uploads at pick ${at + 1}`
+          : foreign !== undefined
+            ? `Needs ${CODES[foreign]}, not in the matrix`
+            : 'Does not fit'
+    li.className = check ? (tested ? '' : 'off') : !wanted ? 'off' : at >= 0 ? 'hit' : 'miss'
     const id = `daemon-${i}`
     li.innerHTML = `<label class="check" for="${id}"><input type="checkbox" id="${id}" ${wanted ? 'checked' : ''} /><span class="box" aria-hidden="true"></span><span class="idx">${i + 1}</span><span class="seq">${seq.map(c => `<b>${CODES[c]}</b>`).join('')}</span><span class="status">${fate}</span></label>`
     li.querySelector('input')?.addEventListener('change', e => {
@@ -125,9 +153,45 @@ function renderDaemons(reading: Reading, route: Route, replan: () => void): void
   })
 }
 
-function renderRule(plan: Plan, route: Route, replan: () => void): void {
+function say(text: string): HTMLParagraphElement {
+  const p = document.createElement('p')
+  p.textContent = text
+  return p
+}
+
+function act(label: string, run: () => void): HTMLButtonElement {
+  const b = document.createElement('button')
+  b.textContent = label
+  b.addEventListener('click', run)
+  return b
+}
+
+const daemonNames = (indices: number[]): string => {
+  const names = indices.map(i => String(i + 1))
+  if (!names.length) return 'Nothing'
+  return names.length === 1 ? `Daemon ${names[0]}` : `Daemons ${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
+}
+
+function renderRule(plan: Plan, route: Route, hooks: Hooks): void {
   const rule = $<HTMLElement>('rule')
   rule.replaceChildren()
+  const check = state.check
+  if (check) {
+    rule.className = 'rule open'
+    const answers = document.createElement('div')
+    answers.className = 'answers'
+    answers.append(
+      ...check.outcomes.map(o => act(daemonNames(o.uploaded), () => hooks.outcome(o))),
+      act('Something else', () => hooks.outcome('other')),
+      act('I did not play it', () => hooks.outcome('skipped')),
+    )
+    rule.append(
+      say(`Rule check. Play exactly the ${route.steps.length} picks marked, on a breach you can spare: they are chosen to tell the rules apart, not to upload the most.`),
+      say('Then say what the game uploaded:'),
+      answers,
+    )
+    return
+  }
   if (plan.optimistic) {
     rule.className = 'rule open'
     const extra = plan.optimistic.uploaded.length - plan.route.uploaded.length
@@ -139,7 +203,7 @@ function renderRule(plan: Plan, route: Route, replan: () => void): void {
     b.textContent = state.optimistic ? 'Show the safe route' : 'Show the risky route'
     b.addEventListener('click', () => {
       state.optimistic = !state.optimistic
-      render(true, replan)
+      render(true, hooks)
     })
     rule.append(p, b)
   } else {
@@ -147,9 +211,11 @@ function renderRule(plan: Plan, route: Route, replan: () => void): void {
     const p = document.createElement('p')
     p.textContent = !route.uploaded.length
       ? 'Nothing can be uploaded with this buffer.'
-      : state.matcher
+      : settled(state.matcher)
         ? 'Planned for the rule you set.'
-        : 'This route works under all three.'
+        : state.matcher
+          ? 'This route works under both rules still in play.'
+          : 'This route works under all three.'
     rule.append(p)
   }
   if (!plan.proven) {
@@ -157,17 +223,26 @@ function renderRule(plan: Plan, route: Route, replan: () => void): void {
     p.textContent = 'The search ran out of time; this is the best route found so far.'
     rule.append(p)
   }
+  if (state.ruleNote) rule.append(say(state.ruleNote))
+  if (settled(state.matcher)) return
+  if (state.checking) {
+    // right after an answer the note above already says what happens next
+    if (!state.ruleNote) rule.append(say('This breach cannot tell the rules still in play apart. Back out before the first pick and open it again for a new matrix, or capture another breach.'))
+    rule.append(act('Stop checking', () => hooks.checking(false)))
+  } else {
+    rule.append(act('Check the rule with a breach', () => hooks.checking(true)))
+  }
 }
 
-/** Draws the current plan; `replan` runs after the player changes which daemons are wanted. */
-export function render(animate: boolean, replan: () => void): void {
+/** Draws the current plan, or the rule check that stands in for it. */
+export function render(animate: boolean, hooks: Hooks): void {
   const { reading, plan, frame } = state
   const route = shownRoute()
   if (!reading || !plan || !route || !frame) return
   renderMatrix(reading, plan, route, frame, animate)
   renderBuffer(reading, plan, route)
-  renderDaemons(reading, route, replan)
-  renderRule(plan, route, replan)
+  renderDaemons(reading, route, hooks.replan)
+  renderRule(plan, route, hooks)
   status([
     ['Frame', `${frame.width} × ${frame.height}`],
     ['From', frame.source],

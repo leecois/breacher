@@ -2,7 +2,7 @@ import { desktop } from './desktop'
 import { $ } from './dom'
 import { home, planAgain, readBlob, redraw } from './session'
 import { remembered, state } from './state'
-import type { Priority } from './types'
+import { asMatcher, settled, type Priority } from './types'
 
 export function wireInput(): void {
   const file = $<HTMLInputElement>('file')
@@ -69,10 +69,16 @@ export function wireSettings(): void {
   const matcher = $<HTMLSelectElement>('matcher')
   matcher.value = state.matcher ?? ''
   matcher.addEventListener('change', () => {
-    const v = matcher.value
-    state.matcher = v === 'substring' || v === 'retest' || v === 'strict' ? v : null
+    state.matcher = asMatcher(matcher.value)
     remembered.matcher = state.matcher
     desktop?.setMatcher(state.matcher)
+    // a rule set by hand overrides a check that is under way
+    state.check = null
+    state.ruleNote = ''
+    if (settled(state.matcher) && state.checking) {
+      state.checking = false
+      desktop?.setChecking(false)
+    }
     state.optimistic = false
     void planAgain()
   })

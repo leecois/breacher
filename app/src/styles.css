@@ -903,8 +903,15 @@ select:hover {
 }
 
 .rule p + p,
-.rule p + button {
+.rule p + button,
+.rule p + .answers {
   margin-top: 0.5rem;
+}
+
+.rule .answers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
 }
 
 .rule button {

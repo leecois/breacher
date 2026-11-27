@@ -1,9 +1,9 @@
-import { pixelsOf, readRgba, replan } from './core'
+import { findCheck, pixelsOf, readRgba, replan } from './core'
 import { desktop } from './desktop'
 import { $ } from './dom'
-import { render, renderRejected, status } from './render'
+import { render, renderRejected, ruleFinding, status, type Hooks } from './render'
 import { planOptions, remembered, shownRoute, state } from './state'
-import type { FrameInfo, Response } from './types'
+import { settled, type FrameInfo, type Outcome, type Response, type RuleCheck } from './types'
 
 const stage = $<HTMLElement>('stage')
 
@@ -12,8 +12,19 @@ function setStage(name: 'empty' | 'rejected' | 'result'): void {
   $<HTMLButtonElement>('home').hidden = name === 'empty'
 }
 
+const hooks: Hooks = {
+  replan: () => void planAgain(),
+  checking: on => void setChecking(on),
+  outcome: seen => void answerCheck(seen),
+}
+
 export function redraw(animate: boolean): void {
-  render(animate, () => void planAgain())
+  render(animate, hooks)
+}
+
+/** Sends what the window shows to the overlay over the game. */
+function publish(response: Response, frame: FrameInfo): void {
+  desktop?.publish({ response, frame: { width: frame.width, height: frame.height, source: frame.source }, route: shownRoute(), check: Boolean(state.check) })
 }
 
 export async function readBlob(blob: Blob, source: string): Promise<void> {
@@ -23,7 +34,9 @@ export async function readBlob(blob: Blob, source: string): Promise<void> {
     const { rgba, width, height } = await pixelsOf(blob)
     const t = performance.now()
     const response = await readRgba(rgba, width, height, { priority: state.priority, matcher: state.matcher, buffer_fallback: remembered.buffer })
-    show(response, { width, height, source, url, elapsedMs: performance.now() - t }, true)
+    const elapsedMs = performance.now() - t
+    const check = response.status === 'ok' && state.checking ? await findCheck(response.reading, { matcher: state.matcher }) : null
+    show(response, { width, height, source, url, elapsedMs }, true, check)
   } catch (e) {
     show({ status: 'error', message: e instanceof Error ? e.message : String(e) }, { width: 0, height: 0, source }, true)
   } finally {
@@ -31,8 +44,8 @@ export async function readBlob(blob: Blob, source: string): Promise<void> {
   }
 }
 
-/** Display a fresh answer. `fresh` resets the per-screen choices (buffer override, daemon toggles). */
-export function show(response: Response, frame: FrameInfo, fresh: boolean): void {
+/** Display a fresh answer. `fresh` resets the per-screen choices (buffer override, daemon toggles); `check` stands in for the route. */
+export function show(response: Response, frame: FrameInfo, fresh: boolean, check: RuleCheck | null = null): void {
   if (state.frame?.url && state.frame.url !== frame.url) URL.revokeObjectURL(state.frame.url)
   state.frame = frame
   if (response.status === 'ok') {
@@ -42,6 +55,7 @@ export function show(response: Response, frame: FrameInfo, fresh: boolean): void
       state.wanted = response.reading.sequences.map(() => true)
       state.buffer = null
       state.optimistic = false
+      state.check = state.checking ? check : null
       if (!response.reading.quality.buffer_assumed) remembered.buffer = response.reading.buffer
     }
     state.rejection = null
@@ -50,11 +64,12 @@ export function show(response: Response, frame: FrameInfo, fresh: boolean): void
   } else {
     state.reading = null
     state.plan = null
+    state.check = null
     state.rejection = response
     setStage('rejected')
     renderRejected(response, frame)
   }
-  desktop?.publish({ response, frame: { width: frame.width, height: frame.height, source: frame.source }, route: shownRoute() })
+  publish(response, frame)
 }
 
 /** Gives the current frame its picture once the desktop shell has encoded it. */
@@ -71,6 +86,7 @@ export function home(): void {
   state.frame = null
   state.reading = null
   state.plan = null
+  state.check = null
   state.rejection = null
   setStage('empty')
   status([['Status', 'No frame yet']])
@@ -83,7 +99,42 @@ export async function planAgain(): Promise<void> {
   if (response.status === 'ok') {
     state.plan = response.plan
     if (!response.plan.optimistic) state.optimistic = false
+    // a check depends on the buffer, so one that is under way is found again
+    if (state.check) state.check = await findCheck(response.reading, planOptions())
     redraw(false)
-    desktop?.publish({ response, frame: { width: state.frame.width, height: state.frame.height, source: state.frame.source }, route: shownRoute() })
+    publish(response, state.frame)
   }
+}
+
+/** Starts or stops spending breaches on checking the wrong-pick rule; the screen in the window is used at once. */
+export async function setChecking(on: boolean): Promise<void> {
+  state.checking = on
+  state.ruleNote = ''
+  desktop?.setChecking(on)
+  state.check = on && state.reading ? await findCheck(state.reading, planOptions()) : null
+  if (state.reading && state.plan && state.frame) {
+    redraw(false)
+    publish({ status: 'ok', reading: state.reading, plan: state.plan }, state.frame)
+  }
+}
+
+/** Takes in how a rule check turned out and plans again with what it showed. */
+export async function answerCheck(seen: Outcome | 'other' | 'skipped'): Promise<void> {
+  state.check = null
+  const stop = (): void => {
+    state.checking = false
+    desktop?.setChecking(false)
+  }
+  if (seen === 'other') {
+    state.ruleNote = 'None of the rules in play predicts that, so nothing was changed. Save a report and say what uploaded.'
+    stop()
+  } else if (seen !== 'skipped') {
+    state.matcher = seen.then
+    remembered.matcher = seen.then
+    desktop?.setMatcher(seen.then)
+    $<HTMLSelectElement>('matcher').value = seen.then
+    state.ruleNote = ruleFinding(seen.then)
+    if (settled(seen.then)) stop()
+  }
+  await planAgain()
 }

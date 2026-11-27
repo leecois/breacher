@@ -1,5 +1,5 @@
 // The reader and solver, compiled to WebAssembly. Bytes in, JSON out (see crates/breach-wasm).
-import type { PlanOptions, Reading, Response } from './types'
+import type { PlanOptions, Reading, Response, RuleCheck } from './types'
 
 interface Exports {
   memory: WebAssembly.Memory
@@ -7,6 +7,7 @@ interface Exports {
   bp_free(ptr: number, len: number): void
   bp_read(rgba: number, width: number, height: number, opts: number, optsLen: number): number
   bp_plan(reading: number, readingLen: number, opts: number, optsLen: number): number
+  bp_check(reading: number, readingLen: number, opts: number, optsLen: number): number
 }
 
 let instance: Promise<Exports> | null = null
@@ -31,11 +32,11 @@ function put(x: Exports, bytes: Uint8Array | Uint8ClampedArray): [number, number
   return [ptr, bytes.length]
 }
 
-function take(x: Exports, out: number): Response {
+function take<T = Response>(x: Exports, out: number): T {
   const len = new DataView(x.memory.buffer).getUint32(out, true)
   const json = decoder.decode(new Uint8Array(x.memory.buffer, out + 4, len))
   x.bp_free(out, len + 4)
-  return JSON.parse(json) as Response
+  return JSON.parse(json) as T
 }
 
 function cleanOptions(opts: PlanOptions): string {
@@ -63,6 +64,20 @@ export async function replan(reading: Reading, opts: PlanOptions): Promise<Respo
   const [o, olen] = put(x, encoder.encode(cleanOptions(opts)))
   try {
     return take(x, x.bp_plan(r, rlen, o, olen))
+  } finally {
+    x.bp_free(r, rlen)
+    x.bp_free(o, olen)
+  }
+}
+
+/** The rule check a reading offers given what is already known about the rule, or null when it offers none. */
+export async function findCheck(reading: Reading, opts: PlanOptions): Promise<RuleCheck | null> {
+  const x = await load()
+  const [r, rlen] = put(x, encoder.encode(JSON.stringify(reading)))
+  const [o, olen] = put(x, encoder.encode(cleanOptions(opts)))
+  try {
+    const found = take<{ status: string; check?: RuleCheck }>(x, x.bp_check(r, rlen, o, olen))
+    return found.status === 'ok' && found.check ? found.check : null
   } finally {
     x.bp_free(r, rlen)
     x.bp_free(o, olen)

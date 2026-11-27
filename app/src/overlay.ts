@@ -14,7 +14,9 @@ function paint(p: OverlayPayload): void {
   }
   notice.hidden = true
   const { reading, plan } = p.response
-  const caption = `${p.route.steps.length} of ${plan.buffer} picks, ${p.route.uploaded.length} of ${reading.sequences.length} daemons`
+  const caption = p.check
+    ? `Rule check: play exactly these ${p.route.steps.length} picks`
+    : `${p.route.steps.length} of ${plan.buffer} picks, ${p.route.uploaded.length} of ${reading.sequences.length} daemons`
   drawOverlay(svg, reading, p.route, p.frame, { caption })
 }
 

@@ -1,10 +1,12 @@
 // Bridge to the desktop shell; in a plain browser `desktop` is null and the page works on dropped or pasted screenshots.
-import type { Matcher, Priority, Response, Route } from './types'
+import type { Matcher, Priority, Response, Route, RuleCheck } from './types'
 
 export interface AnswerEvent {
   response: Response
   frame: { width: number; height: number; source: string }
   elapsed_ms: number
+  /** The rule check to play on this screen in place of the route, when one was asked for. */
+  check?: RuleCheck | null
 }
 
 export interface OverlayPayload {
@@ -12,6 +14,8 @@ export interface OverlayPayload {
   frame: { width: number; height: number; source: string }
   /** The route currently shown in the main window (may be the risky alternative). */
   route: Route | null
+  /** The route is a rule check, to be played exactly as drawn. */
+  check?: boolean
 }
 
 export interface ShellStatus {
@@ -60,6 +64,8 @@ export interface Desktop {
   openDownloads(): Promise<void>
   setPriority(p: Priority): void
   setMatcher(m: Matcher | null): void
+  /** Spend the breaches captured from now on checking the wrong-pick rule, or stop doing so. */
+  setChecking(on: boolean): void
   lastFrameUrl(): Promise<string | null>
   /** Ask the system for screen-capture permission (shows the system prompt). */
   allowCapture(): Promise<ShellStatus>
@@ -133,6 +139,9 @@ function make(): Desktop {
     },
     setMatcher(m) {
       void core.then(({ invoke }) => invoke('set_matcher', { matcher: m })).catch(() => undefined)
+    },
+    setChecking(on) {
+      void core.then(({ invoke }) => invoke('set_checking', { on })).catch(() => undefined)
     },
     async lastFrameUrl() {
       const { invoke } = await core

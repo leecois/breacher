@@ -1,4 +1,4 @@
-import type { FrameInfo, Matcher, Plan, PlanOptions, Priority, Reading, Rejection, Route } from './types'
+import { asMatcher, type FrameInfo, type Matcher, type Plan, type PlanOptions, type Priority, type Reading, type Rejection, type Route, type RuleCheck } from './types'
 
 export interface State {
   frame: FrameInfo | null
@@ -13,16 +13,21 @@ export interface State {
   priority: Priority
   /** Show the route that depends on the unconfirmed overlap rule. */
   optimistic: boolean
-  /** The wrong-pick rule, once the player has confirmed it in game. */
+  /** What is known about the wrong-pick rule: one rule, a pair still in play, or null for nothing. */
   matcher: Matcher | null
+  /** The rule check being played on this screen in place of the route. */
+  check: RuleCheck | null
+  /** Breaches are spent on checking the rule until it is settled or the player stops. */
+  checking: boolean
+  /** What the last rule check found, in words. */
+  ruleNote: string
   view: 'sheet' | 'screen'
 }
 
 // small things worth keeping between sessions
 export const remembered = {
   get matcher(): Matcher | null {
-    const v = localStorage.getItem('breacher.matcher')
-    return v === 'substring' || v === 'retest' || v === 'strict' ? v : null
+    return asMatcher(localStorage.getItem('breacher.matcher'))
   },
   set matcher(v: Matcher | null) {
     if (v) localStorage.setItem('breacher.matcher', v)
@@ -39,8 +44,12 @@ export const remembered = {
   },
 }
 
-export const state: State = { frame: null, reading: null, plan: null, rejection: null, wanted: [], buffer: null, priority: 'count', optimistic: false, matcher: remembered.matcher, view: 'sheet' }
+export const state: State = { frame: null, reading: null, plan: null, rejection: null, wanted: [], buffer: null, priority: 'count', optimistic: false, matcher: remembered.matcher, check: null, checking: false, ruleNote: '', view: 'sheet' }
 
 export const planOptions = (): PlanOptions => ({ buffer: state.buffer, wanted: state.wanted.length ? state.wanted : null, priority: state.priority, matcher: state.matcher })
 
-export const shownRoute = (): Route | null => (state.plan ? (state.optimistic && state.plan.optimistic ? state.plan.optimistic : state.plan.route) : null)
+export const shownRoute = (): Route | null => {
+  if (!state.plan) return null
+  if (state.check) return state.check.route
+  return state.optimistic && state.plan.optimistic ? state.plan.optimistic : state.plan.route
+}

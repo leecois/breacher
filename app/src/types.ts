@@ -55,7 +55,29 @@ export type Response =
 export type Rejection = Exclude<Response, { status: 'ok' }>
 
 export type Priority = 'count' | 'tier'
-export type Matcher = 'substring' | 'retest' | 'strict' | 'unanimous'
+export type Matcher = 'substring' | 'retest' | 'strict' | 'unanimous' | 'not_substring' | 'not_retest' | 'not_strict'
+
+const KNOWN: readonly string[] = ['substring', 'retest', 'strict', 'not_substring', 'not_retest', 'not_strict']
+
+/** What is known about the wrong-pick rule, from a stored value; null when nothing is. */
+export const asMatcher = (v: unknown): Matcher | null => (typeof v === 'string' && KNOWN.includes(v) ? (v as Matcher) : null)
+
+/** True once the rule is down to one. */
+export const settled = (m: Matcher | null): boolean => m === 'substring' || m === 'retest' || m === 'strict'
+
+/** One way a rule check can turn out. */
+export interface Outcome {
+  /** Daemons the game uploads in this case, by index. */
+  uploaded: number[]
+  /** What is known about the rule once this has been seen. */
+  then: Matcher
+}
+
+/** A route to play once, chosen so that what uploads tells the wrong-pick rules apart. */
+export interface RuleCheck {
+  route: Route
+  outcomes: Outcome[]
+}
 
 export interface PlanOptions {
   buffer?: number | null
