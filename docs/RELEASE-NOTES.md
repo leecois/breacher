@@ -1,3 +1,14 @@
+## New in 0.2.7
+
+- **Check the rule with a breach.** What the game does to a sequence when a pick does not continue
+  it is not documented, so Breacher has been planning routes that work whatever it does, and
+  sometimes giving up a daemon for it. In the Plan panel choose **Check the rule with a breach**,
+  capture a breach you can spare, play exactly the picks drawn (the line over the game says "Rule
+  check") and tell Breacher what uploaded. One or two breaches settle it.
+- **Reports show the breach being played.** While a route is up, Breacher keeps the last few frames
+  of the game window in memory; **Save a report** writes them next to the capture. Nothing is
+  written or sent unless you save a report and pass it on.
+
 ## New in 0.2.6
 
 - **Told in the game.** When a capture cannot be read, a line over the game says why for a few

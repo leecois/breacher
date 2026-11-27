@@ -6,6 +6,20 @@ Notable changes for people who use Breacher. The format follows
 
 ## Unreleased
 
+## 0.2.7 - 2026-11-28
+
+### Added
+
+- **Check the rule with a breach.** Breacher draws a route chosen to tell the wrong-pick rules
+  apart; you play it and say what uploaded. One or two breaches settle the rule, and routes are
+  better from then on.
+- A saved report also holds up to eight frames of the game window from the last breach that was
+  followed.
+
+### Changed
+
+- Once one wrong-pick rule has been ruled out, routes only have to work under the two that remain.
+
 ## 0.2.6 - 2026-11-28
 
 ### Added
