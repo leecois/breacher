@@ -6,6 +6,15 @@ Notable changes for people who use Breacher. The format follows
 
 ## Unreleased
 
+## 0.2.4 - 2026-11-27
+
+### Changed
+
+- The route drawn over the game now stays until the breach screen closes, where it used to vanish
+  after 45 seconds, and it is taken down as soon as the breach is over or the game is minimised.
+  On Windows 10 it still stays for 45 seconds, because looking at the game again would flash a
+  capture border round it.
+
 ## 0.2.3 - 2026-11-27
 
 ### Added

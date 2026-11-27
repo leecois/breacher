@@ -369,7 +369,7 @@ dependencies = [
 
 [[package]]
 name = "breach-app"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "base64 0.22.1",
  "breach-capture",
@@ -389,7 +389,7 @@ dependencies = [
 
 [[package]]
 name = "breach-capture"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "serde",
  "serde_json",
@@ -399,7 +399,7 @@ dependencies = [
 
 [[package]]
 name = "breach-cli"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "breach-core",
  "image",
@@ -409,7 +409,7 @@ dependencies = [
 
 [[package]]
 name = "breach-core"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "image",
  "serde",
@@ -418,7 +418,7 @@ dependencies = [
 
 [[package]]
 name = "breach-wasm"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "breach-core",
  "serde",

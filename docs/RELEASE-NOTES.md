@@ -1,3 +1,12 @@
+## New in 0.2.4
+
+- **The route leaves when the breach does.** After a hotkey capture Breacher keeps an eye on the
+  game window: the route stays over the game for as long as the breach screen is there, and goes
+  about two seconds after it closes or as soon as the game is minimised. It used to stay for 45
+  seconds whatever happened.
+- On Windows 10 the route still stays for 45 seconds: looking at the game again would flash a
+  yellow capture border round it every time.
+
 ## New in 0.2.3
 
 - **Updates.** An installed copy looks for a newer version when it starts and installs it when you
@@ -50,7 +59,7 @@ over exclusive fullscreen).
 
 - Open a breach in the game and, **before the first pick**, press **Ctrl Shift B** (or the hotkey
   the window shows). The route appears in the Breacher window and, if "Draw the route over the game"
-  is on, over the game for 45 seconds.
+  is on, over the game until the breach screen closes.
 - **Capture game** in the window does the same without the hotkey. It needs the game visible on a
   screen, so it suits a second monitor; a minimised game cannot be captured.
 - No luck with capture? Two fallbacks need none at all:
