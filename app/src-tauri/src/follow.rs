@@ -1,19 +1,19 @@
 //! Following a breach after its route is drawn: decides, look by look, when the route has no screen left to sit on.
 
 use breach_core::plan::{plan_from, PlanOptions, Priority, Route};
-use breach_core::progress::{advance, Look as Seen};
+use breach_core::progress::{advance, Fate, Look as Seen};
 use breach_core::reader::Reading;
 use breach_core::solver::Matcher;
 use std::time::Duration;
 
 /// Time between two looks at the game.
-pub const INTERVAL: Duration = Duration::from_millis(700);
-/// Looks in a row without a breach screen before the route comes down: one odd frame must not do it.
-const GONE: u32 = 3;
+pub const INTERVAL: Duration = Duration::from_millis(400);
+/// Looks in a row without the matrix before the route comes down: an odd frame or two must not do it.
+const GONE: u32 = 4;
 /// Looks in a row that could not be taken before the game is given up on.
-const FAILED: u32 = 6;
+const FAILED: u32 = 8;
 /// Looks after which the route comes down whatever is on screen, about five minutes.
-const LOOKS: u32 = 430;
+const LOOKS: u32 = 750;
 
 /// Looks kept for a report: the most recent ones, which is where a breach is played out.
 const KEEP: usize = 24;
@@ -47,6 +47,8 @@ pub struct Followed {
     pub buffer: Option<usize>,
     /// Cells picked so far, in order.
     pub played: Vec<usize>,
+    /// What the game has made of each daemon so far.
+    pub fates: Vec<Fate>,
 }
 
 /// What a newly seen pick did to the route.
@@ -63,6 +65,27 @@ impl Followed {
         let n = self.reading.n;
         self.played.len() <= self.route.steps.len()
             && self.played.iter().zip(&self.route.steps).all(|(&c, s)| c == s.row * n + s.col)
+    }
+
+    /// Takes in the bars the game has laid over daemons; returns those that are new, counted from one.
+    pub fn settled(&mut self, seen: &[Fate]) -> Vec<(usize, Fate)> {
+        self.fates.resize(seen.len().max(self.fates.len()), Fate::Pending);
+        let mut news = Vec::new();
+        for (i, &fate) in seen.iter().enumerate() {
+            if fate != Fate::Pending && self.fates[i] != fate {
+                self.fates[i] = fate;
+                news.push((i + 1, fate));
+            }
+        }
+        news
+    }
+
+    /// The daemons the game installed and those it failed, counted from one, once any is settled.
+    pub fn outcome(&self) -> Option<(Vec<usize>, Vec<usize>)> {
+        let of =
+            |fate| (1..=self.fates.len()).filter(|i| self.fates[i - 1] == fate).collect::<Vec<_>>();
+        let (installed, failed) = (of(Fate::Installed), of(Fate::Failed));
+        (!installed.is_empty() || !failed.is_empty()).then_some((installed, failed))
     }
 
     /// Takes in what a look shows; says what changed when it shows a pick not seen before.
@@ -108,6 +131,8 @@ impl Followed {
 pub enum Look {
     Breach,
     Other,
+    /// The game has settled every daemon: nothing is left to play.
+    Over,
     Minimised,
     Failed,
 }
@@ -125,6 +150,7 @@ impl Watch {
                 *self = Watch::default();
                 None
             }
+            Look::Over => Some("the breach is over"),
             Look::Minimised => Some("the game was minimised"),
             Look::Other => {
                 self.other += 1;
@@ -179,7 +205,15 @@ mod tests {
             timings: Timings::default(),
         };
         let route = plan(&reading, &PlanOptions::default()).route;
-        Followed { reading, route, check: false, wanted: None, buffer: None, played: Vec::new() }
+        Followed {
+            reading,
+            route,
+            check: false,
+            wanted: None,
+            buffer: None,
+            played: Vec::new(),
+            fates: Vec::new(),
+        }
     }
 
     fn seen(marks: &[(usize, Mark)], committed: usize) -> Seen {
@@ -187,7 +221,7 @@ mod tests {
         for &(cell, mark) in marks {
             cells[cell] = mark;
         }
-        Seen { cells, committed }
+        Seen { cells, committed, fates: Vec::new() }
     }
 
     #[test]
@@ -243,16 +277,34 @@ mod tests {
     }
 
     #[test]
-    fn it_comes_down_once_the_screen_has_been_gone_for_three_looks() {
-        let (why, taken) = play(&[Breach, Breach, Other, Other, Other]);
-        assert_eq!((why, taken), (Some("the breach screen closed"), 5));
+    fn it_comes_down_once_the_matrix_has_been_gone_for_four_looks() {
+        let (why, taken) = play(&[Breach, Breach, Other, Other, Other, Other]);
+        assert_eq!((why, taken), (Some("the breach screen closed"), 6));
+    }
+
+    #[test]
+    fn it_comes_down_at_once_when_every_daemon_is_settled() {
+        let (why, taken) = play(&[Breach, Breach, Over]);
+        assert_eq!((why, taken), (Some("the breach is over"), 3));
+    }
+
+    #[test]
+    fn the_bars_the_game_lays_over_daemons_are_noted_once() {
+        let mut f = followed();
+        assert_eq!(f.outcome(), None);
+        assert_eq!(f.settled(&[Fate::Pending]), vec![]);
+        assert_eq!(f.settled(&[Fate::Installed]), vec![(1, Fate::Installed)]);
+        assert_eq!(f.settled(&[Fate::Installed]), vec![]);
+        // a bar hidden for a moment does not unsettle the daemon
+        assert_eq!(f.settled(&[Fate::Pending]), vec![]);
+        assert_eq!(f.outcome(), Some((vec![1], vec![])));
     }
 
     #[test]
     fn one_odd_frame_does_not_take_it_down() {
         let (why, taken) =
-            play(&[Other, Other, Breach, Other, Failed, Breach, Other, Other, Other]);
-        assert_eq!((why, taken), (Some("the breach screen closed"), 9));
+            play(&[Other, Other, Other, Breach, Other, Failed, Breach, Other, Other, Other, Other]);
+        assert_eq!((why, taken), (Some("the breach screen closed"), 11));
     }
 
     #[test]
@@ -263,8 +315,8 @@ mod tests {
 
     #[test]
     fn a_game_that_cannot_be_captured_is_given_up_on() {
-        let (why, taken) = play(&[Failed; 6]);
-        assert_eq!((why, taken), (Some("the game could no longer be captured"), 6));
+        let (why, taken) = play(&[Failed; 8]);
+        assert_eq!((why, taken), (Some("the game could no longer be captured"), 8));
     }
 
     #[test]

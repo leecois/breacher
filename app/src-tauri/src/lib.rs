@@ -422,6 +422,7 @@ fn run_capture(app: &AppHandle) {
                 wanted: None,
                 buffer: None,
                 played: Vec::new(),
+                fates: Vec::new(),
             };
             *shell.followed.lock().unwrap() = Some((followed, response.clone(), meta.clone()));
         }
@@ -470,25 +471,45 @@ fn tell_progress(app: &AppHandle, shell: &Shell, replanned: bool) {
     let _ = app.emit_to("main", "progress", Progress { route, replanned, check });
 }
 
-/// Looks for a new pick in a frame of the followed breach and redraws the route to match.
-fn follow_picks(app: &AppHandle, frame: &Frame) {
+/// Reads one look at the followed breach: takes in daemons the game has settled and picks it shows, redraws the route to match, and says whether anything was new.
+fn follow_look(app: &AppHandle, frame: &Frame) -> (follow::Look, bool) {
     let shell = app.state::<Shell>();
     let (priority, matcher) = {
         let s = shell.settings.lock().unwrap();
         (s.priority, s.matcher)
     };
-    let step = {
-        let mut guard = shell.followed.lock().unwrap();
-        let Some((followed, ..)) = guard.as_mut() else { return };
-        let seen = progress::look(frame, &followed.reading.geometry, followed.reading.buffer);
-        followed.see(&seen, priority, matcher).map(|step| (step, followed.played.len()))
+    let mut guard = shell.followed.lock().unwrap();
+    let Some((followed, ..)) = guard.as_mut() else {
+        let breach = api::breach_on_screen(frame);
+        return (if breach { follow::Look::Breach } else { follow::Look::Other }, false);
     };
+    let buffer = followed.reading.buffer;
+    let seen = progress::look(frame, &followed.reading.geometry, buffer);
+    let settled = followed.settled(&seen.fates);
+    let step = if seen.matrix_shown(buffer) && !seen.over() {
+        followed.see(&seen, priority, matcher).map(|step| (step, followed.played.len()))
+    } else {
+        None
+    };
+    drop(guard);
+    for (daemon, fate) in &settled {
+        let what = if *fate == progress::Fate::Installed { "installed" } else { "failed" };
+        log(&shell, &format!("daemon {daemon} {what}"));
+    }
     if let Some((step, picks)) = step {
         let replanned = step == follow::Step::Replanned;
         let what = if replanned { "off the route, the rest planned again" } else { "on the route" };
         log(&shell, &format!("pick {picks} seen: {what}"));
         tell_progress(app, &shell, replanned);
     }
+    let look = if seen.over() {
+        follow::Look::Over
+    } else if seen.matrix_shown(buffer) {
+        follow::Look::Breach
+    } else {
+        follow::Look::Other
+    };
+    (look, step.is_some() || !settled.is_empty())
 }
 
 /// Keeps the route up for as long as the breach screen is, and takes it down when the screen goes.
@@ -497,8 +518,9 @@ fn follow_breach(app: &AppHandle, game: &breach_capture::Source, generation: u64
     let started = Instant::now();
     let ours = || shell.generation.load(Ordering::SeqCst) == generation;
     shell.looks.lock().unwrap().clear();
-    // one letter per look, for the log: breach, other, minimised, failed
+    // one letter per look, for the log: breach, other, over, minimised, failed
     let mut trace = String::new();
+    let mut kept_at = None;
     let why = follow::until_gone(|| {
         std::thread::sleep(follow::INTERVAL);
         if !ours() {
@@ -512,23 +534,20 @@ fn follow_breach(app: &AppHandle, game: &breach_capture::Source, generation: u64
                     PixelFormat::Rgba8,
                     &cap.rgba,
                 );
-                let breach = api::breach_on_screen(&frame);
-                if breach {
-                    follow_picks(app, &frame);
+                let (look, news) = follow_look(app, &frame);
+                // a report wants the looks where something happened, and one now and then in between
+                let at = (started.elapsed().as_secs_f32() * 10.0) as u32;
+                if news || kept_at.is_none_or(|last| at >= last + 6) {
+                    if let Some(jpeg) = jpeg(cap.width, cap.height, &cap.rgba, 88) {
+                        kept_at = Some(at);
+                        let breach = look == follow::Look::Breach;
+                        follow::keep(
+                            &mut shell.looks.lock().unwrap(),
+                            follow::Kept { at, breach, jpeg },
+                        );
+                    }
                 }
-                // a breach being played, and how it ends, is what a report about it needs to show
-                if let Some(jpeg) = jpeg(cap.width, cap.height, &cap.rgba, 88) {
-                    let at = (started.elapsed().as_secs_f32() * 10.0) as u32;
-                    follow::keep(
-                        &mut shell.looks.lock().unwrap(),
-                        follow::Kept { at, breach, jpeg },
-                    );
-                }
-                if breach {
-                    follow::Look::Breach
-                } else {
-                    follow::Look::Other
-                }
+                look
             }
             Err(CaptureError::Minimised) => follow::Look::Minimised,
             Err(_) => follow::Look::Failed,
@@ -536,11 +555,21 @@ fn follow_breach(app: &AppHandle, game: &breach_capture::Source, generation: u64
         trace.push(match look {
             follow::Look::Breach => 'B',
             follow::Look::Other => 'o',
+            follow::Look::Over => 'v',
             follow::Look::Minimised => 'm',
             follow::Look::Failed => 'x',
         });
         Some(look)
     });
+    let outcome = shell.followed.lock().unwrap().as_ref().and_then(|(followed, ..)| {
+        let promised: Vec<usize> = followed.route.uploaded.iter().map(|d| d + 1).collect();
+        followed.outcome().map(|(installed, failed)| {
+            format!("result: installed {installed:?}, failed {failed:?}; the route promised {promised:?}")
+        })
+    });
+    if let Some(outcome) = outcome.filter(|_| ours()) {
+        log(&shell, &outcome);
+    }
     if let Some(why) = why.filter(|_| ours()) {
         *shell.followed.lock().unwrap() = None;
         clear_overlay(app);
