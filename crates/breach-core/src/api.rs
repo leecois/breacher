@@ -37,6 +37,14 @@ pub fn rejected(e: ReadError) -> Response {
     Response::Rejected { stage: e.stage, hint: hint(e.stage).to_string(), message: e.message }
 }
 
+/// Whether a breach screen is on this frame in any state: a code matrix was found, even if the rest did not read.
+pub fn breach_on_screen(frame: &Frame) -> bool {
+    match crate::reader::locate(frame, &ReadOptions::default()) {
+        Ok(_) => true,
+        Err(e) => e.stage >= Stage::InProgress,
+    }
+}
+
 pub fn read_and_plan(
     frame: &Frame,
     templates: &Templates,

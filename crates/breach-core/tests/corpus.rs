@@ -1,4 +1,5 @@
 //! Regression tests on the labelled capture corpus.
+use breach_core::api::breach_on_screen;
 use breach_core::glyph::Templates;
 use breach_core::image::{Frame, PixelFormat};
 use breach_core::plan::{plan, PlanOptions};
@@ -92,6 +93,53 @@ fn in_progress_and_foreign_screens_are_rejected_for_the_right_reason() {
             // not the breach screen at all
             "6.png" => assert!(matches!(e.stage, Stage::Lattice | Stage::Segment), "{name}: {e}"),
             _ => {}
+        }
+    }
+}
+
+fn seen(img: &RgbImage) -> bool {
+    let frame =
+        Frame::new(img.width() as usize, img.height() as usize, PixelFormat::Rgb8, img.as_raw());
+    breach_on_screen(&frame)
+}
+
+#[test]
+fn a_breach_screen_is_seen_whatever_its_state() {
+    for (name, img, _) in corpus() {
+        // 6.png is the one capture that shows something else
+        assert_eq!(seen(&img), name != "6.png", "{name}");
+    }
+    let flat = RgbImage::from_pixel(1920, 1080, image::Rgb([12, 14, 20]));
+    assert!(!seen(&flat), "a flat frame");
+    let mut state = 7u32;
+    let noise = RgbImage::from_fn(1280, 720, |_, _| {
+        state = state.wrapping_mul(1664525).wrapping_add(1013904223);
+        image::Rgb([(state >> 24) as u8, (state >> 16) as u8, (state >> 8) as u8])
+    });
+    assert!(!seen(&noise), "noise");
+}
+
+/// A route being played empties its cells one by one; the screen must stay recognisable until the last pick.
+#[test]
+fn a_breach_being_played_is_still_seen() {
+    for (name, mut img, label) in corpus() {
+        if label.negative {
+            continue;
+        }
+        let reading = run(&img).unwrap();
+        let g = &reading.geometry;
+        let route = plan(&reading, &PlanOptions::default()).route;
+        assert!(!route.steps.is_empty(), "{name}: no route to play");
+        for (k, step) in route.steps.iter().enumerate() {
+            let (cx, cy) = g.cell_center(step.row, step.col);
+            let ground = *img.get_pixel((cx + g.px / 2.0) as u32, (cy + g.py / 2.0) as u32);
+            let (hw, hh) = (g.px * 0.42, g.py * 0.4);
+            for y in (cy - hh) as u32..=(cy + hh) as u32 {
+                for x in (cx - hw) as u32..=(cx + hw) as u32 {
+                    img.put_pixel(x, y, ground);
+                }
+            }
+            assert!(seen(&img), "{name}: lost after pick {}", k + 1);
         }
     }
 }
