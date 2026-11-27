@@ -1,6 +1,6 @@
 name: release
 
-# builds the installer and the portable program and attaches them, with the command-line tool, to a draft release
+# builds the installer, the portable program and the update manifest and attaches them, with the command-line tool, to a draft release
 on:
   push:
     tags: ['v*']
@@ -38,8 +38,12 @@ jobs:
       - name: Corpus through the command-line tool
         run: cargo run --release -p breach-cli -- eval corpus/cpah
 
+      # the installer is signed so that installed copies accept it as an update
       - name: Installer
         working-directory: app
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
         run: |
           npm ci
           npm run tauri build -- --bundles nsis
@@ -59,12 +63,15 @@ jobs:
 
       - name: Collect files
         shell: bash
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
           mkdir out
           cp target/release/bundle/nsis/*-setup.exe out/
           setup=$(basename out/*-setup.exe)
           cp target/release/breacher.exe "out/${setup%-setup.exe}-portable.exe"
           cp target/release/breach.exe out/breach-cli.exe
+          node app/scripts/update-manifest.mjs "$TAG" "target/release/bundle/nsis/$setup" out/latest.json
           ls -la out
 
       - uses: actions/upload-artifact@v4
