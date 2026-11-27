@@ -1,4 +1,4 @@
-import { desktop, type AnswerEvent, type Desktop, type ShellStatus } from './desktop'
+import { desktop, type AnswerEvent, type Desktop, type ShellStatus, type UpdateInfo } from './desktop'
 import { $ } from './dom'
 import { attachImage, show } from './session'
 import { remembered, state } from './state'
@@ -37,6 +37,7 @@ function showShell(status: ShellStatus, problem?: string): void {
   $<HTMLElement>('hotkey-now').textContent = recording ? 'Press the new keys' : status.hotkey || 'None'
   $<HTMLButtonElement>('hotkey-change').textContent = recording ? 'Cancel' : 'Change'
   $<HTMLInputElement>('overlay-on').checked = status.overlay
+  $<HTMLInputElement>('updates-on').checked = status.updates
   if (status.matcher !== state.matcher) {
     state.matcher = status.matcher
     remembered.matcher = status.matcher
@@ -94,12 +95,53 @@ function wireHotkey(shell: Desktop): void {
   })
 }
 
+/** Shows a newer release and what the player can do about it; `failure` is why installing it did not work. */
+function showUpdate(shell: Desktop, update: UpdateInfo, failure?: string): void {
+  const text = $<HTMLElement>('update-text')
+  const go = $<HTMLButtonElement>('update-go')
+  const install = update.installable && !failure
+  $<HTMLElement>('update').hidden = false
+  go.hidden = false
+  go.disabled = false
+  go.textContent = install ? 'Update and restart' : 'Open the download page'
+  text.textContent = failure
+    ? `Breacher ${update.version} did not install: ${failure}`
+    : update.installable
+      ? `Breacher ${update.version} is out.`
+      : `Breacher ${update.version} is out. This copy runs without installing, so it cannot replace itself.`
+  go.onclick = async () => {
+    if (!install) return void shell.openDownloads()
+    go.disabled = true
+    text.textContent = `Downloading Breacher ${update.version}`
+    try {
+      await shell.installUpdate(percent => {
+        text.textContent = percent < 100 ? `Downloading Breacher ${update.version}: ${percent}%` : `Installing Breacher ${update.version}`
+      })
+    } catch (err) {
+      showUpdate(shell, update, String(err))
+    }
+  }
+}
+
 /** Connects the page to the desktop shell; does nothing in a plain browser. */
 export async function startShell(): Promise<void> {
   if (!desktop) return
   const shell = desktop
   showShell(await shell.start(onAnswer))
   wireHotkey(shell)
+  const lookForUpdate = (): void => {
+    void shell
+      .checkUpdate()
+      .then(update => update && showUpdate(shell, update))
+      .catch(() => undefined)
+  }
+  lookForUpdate()
+  $<HTMLInputElement>('updates-on').addEventListener('change', async e => {
+    const status = await shell.setUpdates((e.target as HTMLInputElement).checked)
+    showShell(status)
+    $<HTMLElement>('update').hidden = true
+    if (status.updates) lookForUpdate()
+  })
   $<HTMLButtonElement>('capture').addEventListener('click', () => void shell.capture())
   $<HTMLButtonElement>('allow').addEventListener('click', async () => {
     const status = await shell.allowCapture()
@@ -126,6 +168,7 @@ export function previewShell(): void {
   $<HTMLElement>('way-capture').hidden = false
   $<HTMLElement>('hotkey-now').textContent = 'Ctrl Shift B'
   $<HTMLInputElement>('overlay-on').checked = true
+  $<HTMLInputElement>('updates-on').checked = true
   $<HTMLElement>('watch-note').textContent = 'Watching C:\\Users\\you\\Pictures\\Screenshots'
   $<HTMLButtonElement>('watch').textContent = 'Stop watching'
 }

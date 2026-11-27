@@ -19,6 +19,10 @@
     </header>
 
     <section class="shell" id="shell" hidden aria-label="Capture settings">
+      <div class="update" id="update" hidden>
+        <p id="update-text"></p>
+        <button id="update-go" class="btn small primary"></button>
+      </div>
       <p id="shell-note" class="shell-note" hidden></p>
       <button id="allow" class="btn small" hidden>Allow screen capture</button>
       <div class="hotkey" id="hotkey-set">
@@ -27,6 +31,7 @@
         <button id="hotkey-change" class="btn small">Change</button>
       </div>
       <label class="check"><input type="checkbox" id="overlay-on" /><span class="box" aria-hidden="true"></span>Draw the route over the game</label>
+      <label class="check"><input type="checkbox" id="updates-on" /><span class="box" aria-hidden="true"></span>Look for updates at start</label>
       <p id="watch-note" class="watch-note"></p>
       <button id="watch" class="btn small">Watch a screenshot folder</button>
     </section>
