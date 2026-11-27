@@ -6,6 +6,10 @@ Notable changes for people who use Breacher. The format follows
 
 ## Unreleased
 
+### Added
+
+- A portable build for Windows that runs without installing, next to the installer.
+
 ## 0.2.2 - 2026-11-27
 
 ### Added

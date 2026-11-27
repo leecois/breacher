@@ -16,14 +16,26 @@ Fixes for the first reports from a gaming PC:
 This is a pre-release. The desktop app has had little testing on Windows so far, so expect rough
 edges and please report what you see.
 
+## Run without installing
+
+Download `Breacher_…_x64-portable.exe`, put it anywhere and double-click it. Nothing is installed;
+deleting the file removes the program. Settings and the log are still kept in
+`%APPDATA%\dev.breacher.mk2`.
+
+It needs the WebView2 runtime, which Windows 11 and an up-to-date Windows 10 already have. If the
+window does not open, use the installer instead: it fetches the runtime when it is missing.
+
 ## Install
 
-1. Download `Breacher_…_x64-setup.exe` and run it. Windows SmartScreen will warn that the publisher
-   is unknown, because the installer is not code-signed: choose **More info**, then **Run anyway**.
+1. Download `Breacher_…_x64-setup.exe` and run it.
 2. If an earlier version is installed, the installer may say that Breacher is still running, even
    with no window open. That is the fault fixed in 0.2.2: choose **OK** to let it close the old copy.
-3. Start Breacher. Set the game to **Windowed Borderless** (the overlay cannot draw over exclusive
-   fullscreen).
+
+## First start
+
+Neither file is code-signed, so Windows SmartScreen warns that the publisher is unknown: choose
+**More info**, then **Run anyway**. Set the game to **Windowed Borderless** (the overlay cannot draw
+over exclusive fullscreen).
 
 ## Use
 

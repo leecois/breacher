@@ -10,10 +10,13 @@ game. A purpose-built screen reader does the reading in about 13 ms and refuses 
 read with confidence instead of guessing. An exact solver then finds the route in well under a
 millisecond.
 
-## Install on Windows
+## Run on Windows
 
-Download the installer from the Releases page and run it. It is not code-signed, so SmartScreen asks
-for confirmation (More info, then Run anyway). Set the game to Windowed Borderless, open a breach and
+The Releases page has two files. The portable one (`…-portable.exe`) runs from wherever you put it,
+with nothing to install; it needs the WebView2 runtime, which Windows 11 and an up-to-date Windows 10
+already have. The installer (`…-setup.exe`) adds a Start menu entry and fetches that runtime when it
+is missing. Neither is code-signed, so SmartScreen asks for confirmation (More info, then Run
+anyway). Set the game to Windowed Borderless, open a breach and
 press `Ctrl Shift B` before the first pick. The window shows the hotkey in use and lets you change
 it. The app keeps a log at `%APPDATA%\dev.breacher.mk2\breacher.log`.
 
