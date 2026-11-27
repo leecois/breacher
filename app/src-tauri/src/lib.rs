@@ -2,6 +2,7 @@
 
 mod follow;
 mod hotkey;
+mod report;
 mod update;
 
 use base64::Engine;
@@ -24,6 +25,7 @@ use tauri::{
     AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, PhysicalPosition, PhysicalSize,
     State, WindowEvent,
 };
+use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -48,6 +50,8 @@ struct Settings {
     updates: bool,
     /// Keep running in the tray, hotkey and all, when the main window is closed.
     tray: bool,
+    /// The version that ran last: the first start of a new one shows its window even when asked to start hidden.
+    last_version: Option<String>,
 }
 
 impl Default for Settings {
@@ -64,6 +68,7 @@ impl Default for Settings {
             hotkey: None,
             updates: true,
             tray: true,
+            last_version: None,
         }
     }
 }
@@ -81,6 +86,12 @@ struct Shell {
     log_path: PathBuf,
     templates: Templates,
     last: Mutex<Option<LastFrame>>,
+    /// What was made of the last frame, for a report.
+    last_answer: Mutex<Option<Answer>>,
+    /// The game's version as last seen by a capture.
+    game: Mutex<Option<String>>,
+    /// Whether the program starts when the player signs in; `None` when the system will not say.
+    autostart: Mutex<Option<bool>>,
     /// Bumped on every capture; a pending "clear the overlay" only fires for its own capture.
     generation: AtomicU64,
     watcher: Mutex<Option<RecommendedWatcher>>,
@@ -127,6 +138,7 @@ struct ShellStatus {
     updates: bool,
     /// Whether closing the window keeps the program in the tray; `None` where there is no tray.
     tray: Option<bool>,
+    autostart: Option<bool>,
     log_path: String,
 }
 
@@ -177,6 +189,7 @@ fn status_of(shell: &Shell) -> ShellStatus {
         overlay: settings.overlay,
         updates: settings.updates,
         tray: shell.tray.load(Ordering::SeqCst).then_some(settings.tray),
+        autostart: *shell.autostart.lock().unwrap(),
         log_path: shell.log_path.display().to_string(),
     }
 }
@@ -264,13 +277,14 @@ fn answer(
     );
     // stored first: the page asks for this frame as soon as it hears the answer
     *shell.last.lock().unwrap() = Some(LastFrame { width, height, rgba });
-    let _ = app.emit_to(
-        "main",
-        "answer",
-        Answer { response: response.clone(), frame: meta.clone(), elapsed_ms },
-    );
+    let told = Answer { response: response.clone(), frame: meta.clone(), elapsed_ms };
+    *shell.last_answer.lock().unwrap() = Some(told.clone());
+    let _ = app.emit_to("main", "answer", told);
     (response, meta)
 }
+
+/// How long a notice about an unread capture stays over the game.
+const NOTICE: Duration = Duration::from_secs(6);
 
 fn clear_overlay(app: &AppHandle) {
     let _ = app.emit_to("overlay", "clear", ());
@@ -313,6 +327,7 @@ fn run_capture(app: &AppHandle) {
         (cap.x, cap.y, cap.screen_width, cap.screen_height, cap.logical_units);
     if let Some(program) = cap.program {
         log(&shell, &format!("game version {}", program.label()));
+        *shell.game.lock().unwrap() = Some(program.label());
         let _ = app.emit_to("main", "game-version", program.label());
     }
     let follow = settings.overlay_follow.unwrap_or_else(breach_capture::recapture_is_quiet);
@@ -336,7 +351,6 @@ fn run_capture(app: &AppHandle) {
         )
     });
     let (response, meta) = answer(app, cap.rgba, cap.width, cap.height, cap.source, started, lost);
-    let Response::Ok { plan, .. } = &response else { return };
     if !settings.overlay {
         return;
     }
@@ -352,6 +366,21 @@ fn run_capture(app: &AppHandle) {
         if !overlay.is_visible().unwrap_or(false) {
             let _ = overlay.show();
         }
+        let plan = match &response {
+            Response::Ok { plan, .. } => plan,
+            Response::Rejected { hint, .. } => {
+                // nothing else tells a player inside the game that the capture came to nothing
+                let _ = app.emit_to("overlay", "notice", hint.clone());
+                let app = app.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(NOTICE);
+                    if app.state::<Shell>().generation.load(Ordering::SeqCst) == generation {
+                        clear_overlay(&app);
+                    }
+                });
+                return;
+            }
+        };
         let route = Some(plan.route.clone());
         let _ = app.emit_to(
             "overlay",
@@ -541,6 +570,19 @@ fn set_tray(shell: State<Shell>, enabled: bool) -> ShellStatus {
 }
 
 #[tauri::command]
+fn set_autostart(
+    app: AppHandle,
+    shell: State<Shell>,
+    enabled: bool,
+) -> Result<ShellStatus, String> {
+    let launch = app.autolaunch();
+    let changed = if enabled { launch.enable() } else { launch.disable() };
+    *shell.autostart.lock().unwrap() = launch.is_enabled().ok();
+    changed.map_err(|e| e.to_string())?;
+    Ok(status_of(&shell))
+}
+
+#[tauri::command]
 fn set_updates(shell: State<Shell>, enabled: bool) -> ShellStatus {
     shell.settings.lock().unwrap().updates = enabled;
     save(&shell);
@@ -657,6 +699,9 @@ fn selftest_hotkey(app: &AppHandle) -> String {
     format!("{back} | change: bare key refused={refused} kept={kept}, bound {changed} released={released}, back to {back}")
 }
 
+/// The argument a start at sign-in carries: go straight to the tray.
+const HIDDEN: &str = "--hidden";
+
 fn show_main(app: &AppHandle) {
     if let Some(main) = app.get_webview_window("main") {
         let _ = main.unminimize();
@@ -702,6 +747,7 @@ pub fn run() {
             builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_main(app)));
     }
     builder
+        .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, Some(vec![HIDDEN])))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -750,6 +796,9 @@ pub fn run() {
                 log_path,
                 templates: Templates::builtin(),
                 last: Mutex::new(None),
+                last_answer: Mutex::new(None),
+                game: Mutex::new(None),
+                autostart: Mutex::new(None),
                 generation: AtomicU64::new(0),
                 watcher: Mutex::new(None),
                 last_file: Mutex::new(None),
@@ -759,8 +808,27 @@ pub fn run() {
             });
             let tray = add_tray(app.handle());
             app.state::<Shell>().tray.store(tray.is_ok(), Ordering::SeqCst);
-            if let Err(e) = tray {
+            if let Err(e) = &tray {
                 log(&app.state::<Shell>(), &format!("no tray icon, so closing the window ends the program: {e}"));
+            }
+            {
+                let shell = app.state::<Shell>();
+                *shell.autostart.lock().unwrap() = app.autolaunch().is_enabled().ok();
+                let version = shell.version.clone();
+                let (stay, known) = {
+                    let s = shell.settings.lock().unwrap();
+                    (s.tray, s.last_version.as_deref() == Some(version.as_str()))
+                };
+                if !known {
+                    shell.settings.lock().unwrap().last_version = Some(version);
+                    save(&shell);
+                }
+                // a start at sign-in goes straight to the tray, except the first start of a new version
+                let asked = std::env::args().any(|a| a == HIDDEN);
+                let test = std::env::var_os("BREACHER_SELFTEST").is_some();
+                if !(asked && stay && known && tray.is_ok() && !test) {
+                    show_main(app.handle());
+                }
             }
             let mut refusals = Vec::new();
             let binding = hotkey::bind(wanted, |s| match app.global_shortcut().register(s) {
@@ -816,8 +884,20 @@ pub fn run() {
                             };
                             let own = breach_capture::version::of_process(std::process::id())
                                 .map_or("none".to_string(), |v| v.label());
+                            let report = match report::write(&handle, "selftest") {
+                                Ok((_, files)) => files.join(" "),
+                                Err(e) => format!("FAILED ({e})"),
+                            };
+                            // BREACHER_SELFTEST_AUTOSTART: also switch starting at sign-in on and off again
+                            let autostart = if std::env::var_os("BREACHER_SELFTEST_AUTOSTART").is_some() {
+                                let on = set_autostart(handle.clone(), handle.state(), true).map(|s| s.autostart);
+                                let off = set_autostart(handle.clone(), handle.state(), false).map(|s| s.autostart);
+                                format!("on {on:?}, off again {off:?}")
+                            } else {
+                                "not tried".to_string()
+                            };
                             format!(
-                                "selftest: {summary} | frame {}x{} | {:.1} ms | hotkey: {} | windows: main={} overlay={} | capture permission: {:?} | frame url: {} | update: {update} | version the system reports for this program: {own}",
+                                "selftest: {summary} | frame {}x{} | {:.1} ms | hotkey: {} | windows: main={} overlay={} | capture permission: {:?} | frame url: {} | update: {update} | version the system reports for this program: {own} | report: {report} | start at sign-in: {autostart}",
                                 meta.width,
                                 meta.height,
                                 started.elapsed().as_secs_f32() * 1e3,
@@ -854,7 +934,7 @@ pub fn run() {
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![status, capture, allow_capture, set_priority, set_matcher, set_overlay, dismiss_overlay, set_updates, set_tray, watch_folder, pause_hotkey, set_hotkey, last_frame_url,
+        .invoke_handler(tauri::generate_handler![status, capture, allow_capture, set_priority, set_matcher, set_overlay, dismiss_overlay, set_updates, set_tray, set_autostart, report::save_report, watch_folder, pause_hotkey, set_hotkey, last_frame_url,
             update::check_update,
             update::install_update,
             update::open_downloads])
