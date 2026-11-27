@@ -51,6 +51,7 @@ not an improvement, whatever it does to the other numbers.
    draft release.
 3. Publishing the draft as a full release offers it to installed copies, which read `latest.json`
    from the latest full release. A pre-release is on the page but is not offered as an update.
+4. Every push to `main` also publishes the page for browsers (`pages.yml`).
 
 The installer is signed with the key in the `TAURI_SIGNING_PRIVATE_KEY` secret; its public half is
 in `tauri.conf.json`. Installed copies refuse an update signed with any other key, so the key must

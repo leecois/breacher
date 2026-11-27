@@ -22,12 +22,12 @@ other crates and the app only feed it pixels and show what it returns.
 
 | Path | What it holds |
 |---|---|
-| `crates/breach-core` | The reader (`image`, `glyph`, `reader`), the solver (`solver`), the planner (`plan`), the reader of a breach under way (`progress`) and the one-call entry point for front ends (`api`). Depends only on `serde`. |
+| `crates/breach-core` | The reader (`image`, `glyph`, `reader`), the solver (`solver`), the planner (`plan`), the reader of a breach under way (`progress`), the follower that keeps a route in step with the picks seen (`follow`) and the one-call entry point for front ends (`api`). Depends only on `serde`. |
 | `crates/breach-core/src/reader` | One module per stage of the reader: `segment` (strokes), `lattice` (the matrix), `sequences`, `buffer`, with `region`, `measure` and `debug` as shared helpers. `reader.rs` holds the public types and runs the stages in order. |
 | `crates/breach-cli` | The `breach` command. `read` and `rule-probe` for players; `eval`, `learn-templates`, `calibrate`, `separation` and `bench-solver` for development. |
 | `crates/breach-capture` | One-shot screen capture: finds the game window, checks permission without prompting, returns the frame and where it sits on screen. `version` reads the game's version from its executable. |
 | `crates/breach-wasm` | `breach-core` behind a plain C ABI for the browser. No binding generator is involved. |
-| `app/src` | The page, in TypeScript. `core.ts` loads the WebAssembly module. `state.ts` holds what the player has on screen, `session.ts` takes a frame through reading and planning, `render.ts` and `draw.ts` show the result. `controls.ts`, `samples.ts` and `shell.ts` wire up input, and `desktop.ts` is the bridge to the shell. |
+| `app/src` | The page, in TypeScript. `core.ts` loads the WebAssembly module. `state.ts` holds what the player has on screen, `session.ts` takes a frame through reading and planning, `render.ts` and `draw.ts` show the result. `controls.ts`, `samples.ts` and `shell.ts` wire up input, and `desktop.ts` is the bridge to the shell. In a browser `live.ts` watches a shared window or screen and `float.ts` keeps the route in a window above the game. |
 | `app/src-tauri` | The desktop shell, a Tauri application: global hotkey (`hotkey.rs` chooses and names the combination), overlay window (`follow.rs` decides when its route comes down), watched folder, updates (`update.rs`), reports (`report.rs`), settings and log. |
 | `corpus` | Labelled captures. They are the regression tests and the source of the glyph templates. |
 
@@ -160,10 +160,17 @@ routes planned afterwards.
 
 ## Front ends
 
-- **WebAssembly.** `bp_read` and `bp_plan` take bytes and return a little-endian `u32` length
-  followed by JSON. The module is built with SIMD so the reader's filters vectorise.
+- **WebAssembly.** `bp_read`, `bp_plan`, `bp_check` and `bp_follow` take bytes and return a
+  little-endian `u32` length followed by JSON. `bp_follow` keeps no state: the page hands it the
+  breach as it stood at the last look and gets it back as it stands now. The module is built with SIMD so the reader's filters vectorise.
 - **Page.** Decodes dropped or pasted images with the browser, calls the module, and draws the
-  result. It works without the shell.
+  result. It works without the shell. In a browser it can also be shown the game by screen
+  sharing. Five times a second it shrinks the shared picture to a few hundred brightness values;
+  when the picture has changed since the last attempt and come to rest, the full frame is read,
+  and a frame that is no breach is passed over in silence. A breach that was read is then
+  followed with `bp_follow` at the same pace, which costs about a hundredth of a second a look at
+  2560×1440. The beat comes from a worker and the frames from the track itself where the browser
+  offers that, because a page covered by the game gets neither timers nor repaints at full rate.
 - **Desktop shell.** On the hotkey it captures the game window, reads it natively, sends the answer
   to the main window and the route to the overlay. The overlay is a transparent, click-through
   window that never takes focus. While a route is up the shell looks at the game window again

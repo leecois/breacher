@@ -20,6 +20,20 @@ anyway). Set the game to Windowed Borderless, open a breach and
 press `Ctrl Shift B` before the first pick. The window shows the hotkey in use and lets you change
 it. The app keeps a log at `%APPDATA%\dev.breacher.mk2\breacher.log`.
 
+## Run in a browser
+
+<https://leecois.github.io/breacher/> is the same reader and solver with nothing to install. Press
+**Share the game screen** and choose the game's window, or the screen it is on, in the browser's
+dialog. Breacher then reads each breach as it opens and counts off your picks, planning again after
+a pick off the route, as the desktop program does. The picture never leaves the page: it is read by
+code running in your browser.
+
+A page cannot draw over the game, and it hears no hotkey while the game has the keyboard. In Chrome
+and Edge, **Float the route over the game** opens a small window that stays above a borderless
+game; when you share a whole screen, keep it off the code matrix, since it is then part of the
+picture. In other browsers the route is on the page, which suits a second screen. A screenshot can
+be dropped or pasted there too.
+
 ## Updates
 
 An installed copy looks for a newer release when it starts and installs it when you say so; the
@@ -38,6 +52,11 @@ There are three ways to give Breacher a screen:
 2. **Watched folder**: point it at the folder where the game, its launcher or the OS saves
    screenshots; new files are read as they appear. Needs no capture permission.
 3. **Drop or paste** a screenshot into the window.
+
+**Capture** in the window chooses what the hotkey captures: the game, found by its name, a window
+picked from the list of those that are open, or a whole display. Pick the window when the game runs
+under another name, as it does through a streaming service. A whole display is captured once, so
+the route over it stays for a fixed time; only a window is followed pick by pick.
 
 Capture before the first pick. A breach that has already started is rejected, not guessed at.
 
@@ -126,13 +145,16 @@ show it handles those sizes and counts consistently, not that the game lays such
 
 ## Not verified yet
 
-- **Live capture and the overlay over the running game.** The installer is built and the reader's
-  tests pass on Windows in the release pipeline, but capturing the game and placing the overlay over
-  it has not been confirmed. The overlay drawing is the same code as the "On the screen" view, which
-  is checked against real captures.
-- **The current game patch.** The captures are from 2020–21. The reader does not rely on fixed panel
-  positions and reports when a screen differs from the usual layout, but a redesigned screen could
-  still defeat it.
+- **Screen sharing against the running game.** The page in a browser is tested by playing recorded
+  looks at a real breach into it, in Chrome. It has not been watched working with a live game, nor
+  in other browsers.
+- **Systems other than the one it was played on.** Capture, the overlay and pick following are
+  confirmed on Windows 11 at 2560×1440. Windows 10, other resolutions and a display chosen from the
+  Capture list are covered by tests only.
+- **The current game patch.** The captures in the corpus are from 2020–21. Version 2.5 reads
+  correctly in use, but none of its screens are in the corpus. The reader does not rely on fixed
+  panel positions and reports when a screen differs from the usual layout; a redesigned screen
+  could still defeat it.
 - **5×5 matrices, and buffers of 4, 5, 7 and above 9.** None are in the corpus. The reader accepts
   3×3 to 9×9 and buffers up to 16 and reads composed screens of those sizes.
 - **Real HDR frames.** Capture returns 8-bit frames; on an HDR desktop they arrive over-bright. That
