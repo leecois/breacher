@@ -30,6 +30,8 @@ pub enum CaptureError {
     Permission,
     /// The requested window or display does not exist.
     NoTarget(String),
+    /// The game is running but its window is minimised, so there is nothing to see.
+    Minimised,
     Backend(String),
 }
 
@@ -40,6 +42,7 @@ impl std::fmt::Display for CaptureError {
                 write!(f, "screen capture is not allowed for this application")
             }
             CaptureError::NoTarget(t) => write!(f, "nothing to capture: {t}"),
+            CaptureError::Minimised => write!(f, "the game window is minimised"),
             CaptureError::Backend(e) => write!(f, "capture failed: {e}"),
         }
     }
@@ -61,6 +64,8 @@ pub struct Captured {
     pub screen_height: u32,
     /// True when the bounds are in logical points, false for physical pixels.
     pub logical_units: bool,
+    /// True when no game window was found and the primary display was captured instead.
+    pub fallback: bool,
     pub capture_ms: f32,
 }
 
@@ -125,34 +130,50 @@ pub fn windows() -> Vec<WindowInfo> {
         .collect()
 }
 
-fn matches(w: &xcap::Window, needle: &str) -> bool {
-    let needle = needle.to_lowercase();
-    let title = w.title().unwrap_or_default().to_lowercase();
-    let app = w.app_name().unwrap_or_default().to_lowercase();
-    title.contains(&needle) || app.contains(&needle)
+/// How well a window fits a name, lower is better: the application itself, then a title that starts with the name, then one that mentions it.
+fn rank(title: &str, app: &str, needles: &[&str]) -> Option<u8> {
+    let (title, app) = (title.to_lowercase(), app.to_lowercase());
+    let needles: Vec<String> = needles.iter().map(|n| n.to_lowercase()).collect();
+    if needles.iter().any(|n| app.contains(n)) {
+        Some(0)
+    } else if needles.iter().any(|n| title.starts_with(n)) {
+        Some(1)
+    } else if needles.iter().any(|n| title.contains(n)) {
+        Some(2)
+    } else {
+        None
+    }
 }
 
-fn find_window(needles: &[&str]) -> Option<xcap::Window> {
-    let all = xcap::Window::all().ok()?;
-    let visible: Vec<xcap::Window> = all
-        .into_iter()
-        .filter(|w| {
-            !w.is_minimized().unwrap_or(true)
-                && w.width().unwrap_or(0) >= 320
-                && w.height().unwrap_or(0) >= 200
-        })
-        .collect();
-    for needle in needles {
-        // the largest match: launchers and helper windows share the name
-        if let Some(w) = visible
-            .iter()
-            .filter(|w| matches(w, needle))
-            .max_by_key(|w| w.width().unwrap_or(0) as u64 * w.height().unwrap_or(0) as u64)
-        {
-            return Some(w.clone());
+enum Search {
+    Found(xcap::Window),
+    /// The application is running, but its only windows are minimised.
+    Minimised,
+    Missing,
+}
+
+fn find_window(needles: &[&str]) -> Search {
+    let Ok(all) = xcap::Window::all() else { return Search::Missing };
+    let mut shown = Vec::new();
+    let mut minimised = false;
+    for w in all {
+        let (title, app) = (w.title().unwrap_or_default(), w.app_name().unwrap_or_default());
+        let Some(rank) = rank(&title, &app, needles) else { continue };
+        if w.is_minimized().unwrap_or(true) {
+            minimised |= rank == 0;
+            continue;
+        }
+        let (width, height) = (w.width().unwrap_or(0), w.height().unwrap_or(0));
+        if width >= 320 && height >= 200 {
+            shown.push((rank, std::cmp::Reverse(width as u64 * height as u64), w));
         }
     }
-    None
+    // among equals the largest wins: launchers and helper windows share the name
+    match shown.into_iter().min_by_key(|(rank, area, _)| (*rank, *area)) {
+        Some((_, _, w)) => Search::Found(w),
+        None if minimised => Search::Minimised,
+        None => Search::Missing,
+    }
 }
 
 fn backend(e: xcap::XCapError) -> CaptureError {
@@ -173,6 +194,7 @@ fn grab_window(w: &xcap::Window) -> Result<Captured, CaptureError> {
         screen_width: w.width().map_err(backend)?,
         screen_height: w.height().map_err(backend)?,
         logical_units: cfg!(target_os = "macos"),
+        fallback: false,
         capture_ms: t.elapsed().as_secs_f32() * 1e3,
     })
 }
@@ -195,6 +217,7 @@ fn grab_display(index: usize) -> Result<Captured, CaptureError> {
         screen_width: m.width().map_err(backend)?,
         screen_height: m.height().map_err(backend)?,
         logical_units: cfg!(target_os = "macos"),
+        fallback: false,
         capture_ms: t.elapsed().as_secs_f32() * 1e3,
     })
 }
@@ -206,12 +229,16 @@ pub fn capture(target: &Target) -> Result<Captured, CaptureError> {
     }
     match target {
         Target::Auto => match find_window(&GAME_HINTS) {
-            Some(w) => grab_window(&w),
-            None => grab_display(0),
+            Search::Found(w) => grab_window(&w),
+            Search::Minimised => Err(CaptureError::Minimised),
+            Search::Missing => grab_display(0).map(|c| Captured { fallback: true, ..c }),
         },
         Target::Window(name) => match find_window(&[name.as_str()]) {
-            Some(w) => grab_window(&w),
-            None => Err(CaptureError::NoTarget(format!("no open window matches \"{name}\""))),
+            Search::Found(w) => grab_window(&w),
+            Search::Minimised => Err(CaptureError::Minimised),
+            Search::Missing => {
+                Err(CaptureError::NoTarget(format!("no open window matches \"{name}\"")))
+            }
         },
         Target::Display(i) => grab_display(*i),
     }
@@ -241,6 +268,16 @@ mod tests {
             ));
             assert!(matches!(capture(&Target::Display(99)), Err(CaptureError::NoTarget(_))));
         }
+    }
+
+    #[test]
+    fn the_application_outranks_windows_that_only_mention_it() {
+        let game = rank("Cyberpunk 2077 (C) 2020", "Cyberpunk 2077", &GAME_HINTS);
+        let unnamed = rank("Cyberpunk 2077 (C) 2020", "", &GAME_HINTS);
+        let browser = rank("Guide to Cyberpunk 2077 - Browser", "Browser", &GAME_HINTS);
+        assert_eq!((game, unnamed, browser), (Some(0), Some(1), Some(2)));
+        assert_eq!(rank("Breacher", "Breacher", &GAME_HINTS), None);
+        assert_eq!(rank("x", "CYBERPUNK2077.EXE", &GAME_HINTS), Some(0));
     }
 
     #[test]

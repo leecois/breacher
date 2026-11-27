@@ -1,5 +1,7 @@
 //! Desktop shell: a global hotkey that captures and reads the game, an overlay window over it, and a watched screenshot folder.
 
+mod hotkey;
+
 use base64::Engine;
 use breach_capture::{CaptureError, Permission, Target};
 use breach_core::api::{self, Response};
@@ -16,11 +18,9 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tauri::{
     AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, PhysicalPosition, PhysicalSize,
-    State,
+    State, WindowEvent,
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
-
-const HOTKEY: &str = "CmdOrCtrl+Shift+B";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
@@ -36,6 +36,8 @@ struct Settings {
     matcher: Option<Matcher>,
     /// Buffer size last read from the screen: assumed when a later frame's buffer panel is unreadable.
     last_buffer: Option<usize>,
+    /// The capture hotkey the player chose. `None` = the first default that is free.
+    hotkey: Option<String>,
 }
 
 impl Default for Settings {
@@ -48,6 +50,7 @@ impl Default for Settings {
             watch_dir: None,
             matcher: None,
             last_buffer: None,
+            hotkey: None,
         }
     }
 }
@@ -70,7 +73,7 @@ struct Shell {
     watcher: Mutex<Option<RecommendedWatcher>>,
     /// Last file handled by the folder watcher (events arrive in bursts).
     last_file: Mutex<Option<(PathBuf, Instant)>>,
-    hotkey_error: Mutex<Option<String>>,
+    hotkey: Mutex<hotkey::Binding>,
 }
 
 #[derive(Clone, Serialize)]
@@ -97,7 +100,7 @@ struct OverlayPayload {
 #[derive(Clone, Serialize)]
 struct ShellStatus {
     matcher: Option<Matcher>,
-    /// The hotkey as the player would read it.
+    /// The bound hotkey as the player would read it; empty when none could be bound.
     hotkey: String,
     capture_ready: bool,
     capture_note: String,
@@ -127,37 +130,38 @@ fn log(shell: &Shell, line: &str) {
     }
 }
 
-fn hotkey_label() -> String {
-    if cfg!(target_os = "macos") {
-        "⌘ ⇧ B".into()
-    } else {
-        "Ctrl Shift B".into()
-    }
-}
-
 fn status_of(shell: &Shell) -> ShellStatus {
     let settings = shell.settings.lock().unwrap().clone();
-    let hotkey_error = shell.hotkey_error.lock().unwrap().clone();
-    let (capture_ready, capture_note) = match (breach_capture::permission(), hotkey_error) {
-        (Permission::Denied, _) => (
-            false,
-            "Screen capture is off for Breacher. Allow it to capture the game with the hotkey."
-                .to_string(),
+    let binding = *shell.hotkey.lock().unwrap();
+    let capture_ready = breach_capture::permission() == Permission::Granted;
+    let capture_note = match (capture_ready, binding.active, binding.refused) {
+        (false, ..) => "Screen capture is off for Breacher. Allow it to capture the game.".into(),
+        (true, Some(active), Some(refused)) => format!(
+            "{} belongs to another program, so the hotkey is {}.",
+            hotkey::label(&refused),
+            hotkey::label(&active)
         ),
-        (Permission::Granted, Some(e)) => (
-            true,
-            format!("The hotkey could not be registered ({e}). Use the Capture game button."),
-        ),
-        (Permission::Granted, None) => (true, String::new()),
+        (true, None, _) => {
+            "No hotkey is free. Choose one with Change, or use the Capture game button.".into()
+        }
+        (true, Some(_), None) => String::new(),
     };
     ShellStatus {
         matcher: settings.matcher,
-        hotkey: hotkey_label(),
+        hotkey: binding.active.as_ref().map(hotkey::label).unwrap_or_default(),
         capture_ready,
         capture_note,
         watch_dir: settings.watch_dir.map(|p| p.display().to_string()),
         overlay: settings.overlay,
         log_path: shell.log_path.display().to_string(),
+    }
+}
+
+/// What the player does next to capture from inside the game.
+fn next_step(shell: &Shell) -> String {
+    match shell.hotkey.lock().unwrap().active {
+        Some(active) => format!("then press {}", hotkey::label(&active)),
+        None => "after choosing a hotkey to press there".to_string(),
     }
 }
 
@@ -175,7 +179,7 @@ fn rejected(message: String, hint: &str) -> Response {
     Response::Rejected { stage: Stage::Frame, message, hint: hint.to_string() }
 }
 
-/// Read pixels, tell the main window, remember the frame.
+/// Read pixels, tell the main window, remember the frame. `lost` replaces the hint when the frame holds no breach screen.
 fn answer(
     app: &AppHandle,
     rgba: Vec<u8>,
@@ -183,6 +187,7 @@ fn answer(
     height: u32,
     source: String,
     started: Instant,
+    lost: Option<String>,
 ) -> (Response, FrameMeta) {
     let shell = app.state::<Shell>();
     let (priority, matcher, last_buffer) = {
@@ -199,6 +204,15 @@ fn answer(
         &read_opt,
         &PlanOptions { priority, matcher, ..PlanOptions::default() },
     );
+    let response = match (response, lost) {
+        (
+            Response::Rejected {
+                stage: stage @ (Stage::Segment | Stage::Lattice), message, ..
+            },
+            Some(hint),
+        ) => Response::Rejected { stage, message, hint },
+        (response, _) => response,
+    };
     if let Response::Ok { reading, .. } = &response {
         if !reading.quality.buffer_assumed && last_buffer != Some(reading.buffer) {
             shell.settings.lock().unwrap().last_buffer = Some(reading.buffer);
@@ -224,12 +238,13 @@ fn answer(
         &shell,
         &format!("answer: {} ({}x{}) {what} in {elapsed_ms:.1} ms", meta.source, width, height),
     );
+    // stored first: the page asks for this frame as soon as it hears the answer
+    *shell.last.lock().unwrap() = Some(LastFrame { width, height, rgba });
     let _ = app.emit_to(
         "main",
         "answer",
         Answer { response: response.clone(), frame: meta.clone(), elapsed_ms },
     );
-    *shell.last.lock().unwrap() = Some(LastFrame { width, height, rgba });
     (response, meta)
 }
 
@@ -253,15 +268,16 @@ fn run_capture(app: &AppHandle) {
         Err(e) => {
             log(&shell, &format!("capture failed (target {:?}): {e}", settings.target));
             let hint = match e {
-                CaptureError::Permission => "Screen capture is off for Breacher. Allow it in the system's privacy settings, then start Breacher again.",
-                CaptureError::NoTarget(_) => "The window to capture is not open.",
-                CaptureError::Backend(_) => "The screen could not be captured. Drop a screenshot here instead.",
+                CaptureError::Permission => "Screen capture is off for Breacher. Allow it in the system's privacy settings, then start Breacher again.".to_string(),
+                CaptureError::NoTarget(_) => "The window to capture is not open.".to_string(),
+                CaptureError::Minimised => format!("The game is minimised. Switch to it and open a breach, {}.", next_step(&shell)),
+                CaptureError::Backend(_) => "The screen could not be captured. Drop a screenshot here instead.".to_string(),
             };
             let _ = app.emit_to(
                 "main",
                 "answer",
                 Answer {
-                    response: rejected(e.to_string(), hint),
+                    response: rejected(e.to_string(), &hint),
                     frame: FrameMeta { width: 0, height: 0, source: "Capture".into() },
                     elapsed_ms: 0.0,
                 },
@@ -274,15 +290,22 @@ fn run_capture(app: &AppHandle) {
     log(
         &shell,
         &format!(
-            "captured {} in {:.1} ms: {}x{} px, on screen at ({x}, {y}) size {sw}x{sh} ({})",
+            "captured {} in {:.1} ms: {}x{} px, on screen at ({x}, {y}) size {sw}x{sh} ({}){}",
             cap.source,
             cap.capture_ms,
             cap.width,
             cap.height,
-            if logical { "points" } else { "pixels" }
+            if logical { "points" } else { "pixels" },
+            if cap.fallback { "; no game window found" } else { "" }
         ),
     );
-    let (response, meta) = answer(app, cap.rgba, cap.width, cap.height, cap.source, started);
+    let lost = cap.fallback.then(|| {
+        format!(
+            "The game window was not found, so the whole screen was captured. Open a breach in the game, {}.",
+            next_step(&shell)
+        )
+    });
+    let (response, meta) = answer(app, cap.rgba, cap.width, cap.height, cap.source, started, lost);
     let Response::Ok { plan, .. } = &response else { return };
     if !settings.overlay {
         return;
@@ -350,7 +373,7 @@ fn on_new_file(app: &AppHandle, path: PathBuf) {
                     .file_name()
                     .map(|n| n.to_string_lossy().into_owned())
                     .unwrap_or_else(|| "Screenshot".into());
-                answer(&app, rgba.into_raw(), w, h, name, started);
+                answer(&app, rgba.into_raw(), w, h, name, started, None);
                 return;
             }
         }
@@ -439,6 +462,63 @@ fn watch_folder(
     Ok(status_of(&shell))
 }
 
+/// Lets go of the hotkey while the player chooses a new one, so the page can see the keys.
+#[tauri::command(async)]
+fn pause_hotkey(app: AppHandle, shell: State<Shell>) {
+    // read first: unregistering waits for the main thread, which may itself want this lock
+    let active = shell.hotkey.lock().unwrap().active;
+    if let Some(active) = active {
+        let _ = app.global_shortcut().unregister(active);
+    }
+}
+
+/// Binds the combination the player chose. `None` takes the current one back after a cancelled change.
+#[tauri::command(async)]
+fn set_hotkey(
+    app: AppHandle,
+    shell: State<Shell>,
+    accelerator: Option<String>,
+) -> Result<ShellStatus, String> {
+    let shortcuts = app.global_shortcut();
+    let current = shell.hotkey.lock().unwrap().active;
+    let restore = || {
+        if let Some(c) = current.filter(|c| !shortcuts.is_registered(*c)) {
+            if shortcuts.register(c).is_err() {
+                shell.hotkey.lock().unwrap().active = None;
+            }
+        }
+    };
+    let Some(accelerator) = accelerator else {
+        restore();
+        return Ok(status_of(&shell));
+    };
+    let chosen = match hotkey::parse(&accelerator).and_then(|s| hotkey::usable(&s).map(|_| s)) {
+        Ok(chosen) => chosen,
+        Err(e) => {
+            restore();
+            return Err(e);
+        }
+    };
+    if !shortcuts.is_registered(chosen) {
+        if let Some(c) = current.filter(|c| shortcuts.is_registered(*c)) {
+            let _ = shortcuts.unregister(c);
+        }
+        if let Err(e) = shortcuts.register(chosen) {
+            log(&shell, &format!("hotkey {} refused: {e}", hotkey::label(&chosen)));
+            restore();
+            return Err(format!(
+                "{} belongs to another program. Try another combination.",
+                hotkey::label(&chosen)
+            ));
+        }
+    }
+    *shell.hotkey.lock().unwrap() = hotkey::Binding { active: Some(chosen), refused: None };
+    shell.settings.lock().unwrap().hotkey = Some(chosen.to_string());
+    save(&shell);
+    log(&shell, &format!("hotkey set to {}", hotkey::label(&chosen)));
+    Ok(status_of(&shell))
+}
+
 /// The last frame as a JPEG data URL, scaled down for display.
 #[tauri::command]
 fn last_frame_url(shell: State<Shell>) -> Option<String> {
@@ -460,8 +540,38 @@ fn last_frame_url(shell: State<Shell>) -> Option<String> {
     ))
 }
 
+/// Self-test of a hotkey change: an unusable choice is refused, a usable one is bound, the first one comes back.
+fn selftest_hotkey(app: &AppHandle) -> String {
+    let shell = app.state::<Shell>();
+    let Some(before) = shell.hotkey.lock().unwrap().active else {
+        return "none bound".to_string();
+    };
+    pause_hotkey(app.clone(), shell.clone());
+    let refused = set_hotkey(app.clone(), shell.clone(), Some("Shift+KeyB".into())).is_err();
+    let kept = app.global_shortcut().is_registered(before);
+    let changed = set_hotkey(app.clone(), shell.clone(), Some("Control+Alt+F9".into()))
+        .map(|s| s.hotkey)
+        .unwrap_or_else(|e| format!("FAILED ({e})"));
+    let released = !app.global_shortcut().is_registered(before);
+    let back = set_hotkey(app.clone(), shell.clone(), Some(before.to_string()))
+        .map(|s| s.hotkey)
+        .unwrap_or_else(|e| format!("FAILED ({e})"));
+    format!("{back} | change: bare key refused={refused} kept={kept}, bound {changed} released={released}, back to {back}")
+}
+
 pub fn run() {
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default();
+    // a self-test must run even while the player has Breacher open
+    if std::env::var_os("BREACHER_SELFTEST").is_none() {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(main) = app.get_webview_window("main") {
+                let _ = main.unminimize();
+                let _ = main.show();
+                let _ = main.set_focus();
+            }
+        }));
+    }
+    builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
@@ -473,6 +583,12 @@ pub fn run() {
                 })
                 .build(),
         )
+        .on_window_event(|window, event| {
+            // the hidden overlay window would otherwise keep the process, and its hotkey, alive
+            if window.label() == "main" && matches!(event, WindowEvent::Destroyed) {
+                window.app_handle().exit(0);
+            }
+        })
         .setup(|app| {
             // BREACHER_CONFIG=<file> keeps tests away from the real settings
             let config_path = std::env::var_os("BREACHER_CONFIG")
@@ -480,6 +596,7 @@ pub fn run() {
                 .unwrap_or_else(|| app.path().app_config_dir().map(|d| d.join("settings.json")).unwrap_or_else(|_| PathBuf::from("breacher-settings.json")));
             let settings: Settings = std::fs::read_to_string(&config_path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
             let watch_dir = settings.watch_dir.clone();
+            let wanted = settings.hotkey.as_deref().and_then(|a| hotkey::parse(a).ok());
             let log_path = config_path.with_file_name("breacher.log");
             app.manage(Shell {
                 settings: Mutex::new(settings),
@@ -490,25 +607,31 @@ pub fn run() {
                 generation: AtomicU64::new(0),
                 watcher: Mutex::new(None),
                 last_file: Mutex::new(None),
-                hotkey_error: Mutex::new(None),
+                hotkey: Mutex::new(hotkey::Binding::default()),
             });
-            let hotkey = app.global_shortcut().register(HOTKEY);
+            let mut refusals = Vec::new();
+            let binding = hotkey::bind(wanted, |s| match app.global_shortcut().register(s) {
+                Ok(()) => true,
+                Err(e) => {
+                    refusals.push(format!("{} ({e})", hotkey::label(&s)));
+                    false
+                }
+            });
             {
                 let shell = app.state::<Shell>();
+                *shell.hotkey.lock().unwrap() = binding;
                 log(
                     &shell,
                     &format!(
-                        "started Breacher {} on {} {}; hotkey {HOTKEY}: {}; capture permission {:?}",
+                        "started Breacher {} on {} {}; hotkey {}; refused {:?}; capture permission {:?}",
                         env!("CARGO_PKG_VERSION"),
                         std::env::consts::OS,
                         std::env::consts::ARCH,
-                        hotkey.as_ref().map(|_| "registered".to_string()).unwrap_or_else(|e| format!("FAILED ({e})")),
+                        binding.active.as_ref().map(hotkey::label).unwrap_or_else(|| "none".into()),
+                        refusals,
                         breach_capture::permission()
                     ),
                 );
-                if let Err(e) = hotkey {
-                    *shell.hotkey_error.lock().unwrap() = Some(e.to_string());
-                }
             }
             if let Some(overlay) = app.get_webview_window("overlay") {
                 let _ = overlay.set_ignore_cursor_events(true);
@@ -527,18 +650,18 @@ pub fn run() {
                         Ok(img) => {
                             let rgba = img.to_rgba8();
                             let (w, h) = (rgba.width(), rgba.height());
-                            let (response, meta) = answer(&handle, rgba.into_raw(), w, h, "selftest".into(), started);
+                            let (response, meta) = answer(&handle, rgba.into_raw(), w, h, "selftest".into(), started, None);
                             let shell = handle.state::<Shell>();
                             let summary = match &response {
                                 Response::Ok { reading, plan } => format!("ok n={} buffer={} picks={} uploaded={:?}", reading.n, reading.buffer, plan.route.steps.len(), plan.route.uploaded),
                                 Response::Rejected { stage, .. } => format!("rejected at {stage:?}"),
                             };
                             format!(
-                                "selftest: {summary} | frame {}x{} | {:.1} ms | hotkey error: {:?} | windows: main={} overlay={} | capture permission: {:?} | frame url: {}",
+                                "selftest: {summary} | frame {}x{} | {:.1} ms | hotkey: {} | windows: main={} overlay={} | capture permission: {:?} | frame url: {}",
                                 meta.width,
                                 meta.height,
                                 started.elapsed().as_secs_f32() * 1e3,
-                                shell.hotkey_error.lock().unwrap(),
+                                selftest_hotkey(&handle),
                                 handle.get_webview_window("main").is_some(),
                                 handle.get_webview_window("overlay").is_some(),
                                 breach_capture::permission(),
@@ -547,12 +670,16 @@ pub fn run() {
                         }
                     };
                     println!("{line}");
-                    handle.exit(0);
+                    // closing the main window has to end the process, as it does for the player
+                    match handle.get_webview_window("main") {
+                        Some(main) => drop(main.close()),
+                        None => handle.exit(0),
+                    }
                 });
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![status, capture, allow_capture, set_priority, set_matcher, set_overlay, watch_folder, last_frame_url])
+        .invoke_handler(tauri::generate_handler![status, capture, allow_capture, set_priority, set_matcher, set_overlay, watch_folder, pause_hotkey, set_hotkey, last_frame_url])
         .run(tauri::generate_context!())
         .expect("error while running Breacher");
 }
