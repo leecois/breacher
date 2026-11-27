@@ -82,6 +82,8 @@ struct Shell {
     /// Last file handled by the folder watcher (events arrive in bursts).
     last_file: Mutex<Option<(PathBuf, Instant)>>,
     hotkey: Mutex<hotkey::Binding>,
+    /// This program's own version, as the updater compares it.
+    version: String,
 }
 
 #[derive(Clone, Serialize)]
@@ -107,6 +109,7 @@ struct OverlayPayload {
 
 #[derive(Clone, Serialize)]
 struct ShellStatus {
+    version: String,
     matcher: Option<Matcher>,
     /// The bound hotkey as the player would read it; empty when none could be bound.
     hotkey: String,
@@ -156,6 +159,7 @@ fn status_of(shell: &Shell) -> ShellStatus {
         (true, Some(_), None) => String::new(),
     };
     ShellStatus {
+        version: shell.version.clone(),
         matcher: settings.matcher,
         hotkey: binding.active.as_ref().map(hotkey::label).unwrap_or_default(),
         capture_ready,
@@ -297,6 +301,10 @@ fn run_capture(app: &AppHandle) {
     };
     let (x, y, sw, sh, logical) =
         (cap.x, cap.y, cap.screen_width, cap.screen_height, cap.logical_units);
+    if let Some(program) = cap.program {
+        log(&shell, &format!("game version {}", program.label()));
+        let _ = app.emit_to("main", "game-version", program.label());
+    }
     let follow = settings.overlay_follow.unwrap_or_else(breach_capture::recapture_is_quiet);
     let again = cap.again.filter(|_| follow);
     log(
@@ -684,6 +692,7 @@ pub fn run() {
                 watcher: Mutex::new(None),
                 last_file: Mutex::new(None),
                 hotkey: Mutex::new(hotkey::Binding::default()),
+                version: app.package_info().version.to_string(),
             });
             let mut refusals = Vec::new();
             let binding = hotkey::bind(wanted, |s| match app.global_shortcut().register(s) {
@@ -737,8 +746,10 @@ pub fn run() {
                                 Ok(None) => "up to date".to_string(),
                                 Err(e) => format!("nothing found ({e})"),
                             };
+                            let own = breach_capture::version::of_process(std::process::id())
+                                .map_or("none".to_string(), |v| v.label());
                             format!(
-                                "selftest: {summary} | frame {}x{} | {:.1} ms | hotkey: {} | windows: main={} overlay={} | capture permission: {:?} | frame url: {} | update: {update}",
+                                "selftest: {summary} | frame {}x{} | {:.1} ms | hotkey: {} | windows: main={} overlay={} | capture permission: {:?} | frame url: {} | update: {update} | version the system reports for this program: {own}",
                                 meta.width,
                                 meta.height,
                                 started.elapsed().as_secs_f32() * 1e3,
