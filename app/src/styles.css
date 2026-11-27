@@ -618,6 +618,28 @@ kbd {
   opacity: 1;
 }
 
+.sheet-codes text.done {
+  fill: var(--dim);
+  opacity: 0.55;
+  text-decoration: line-through;
+}
+
+.marker.done {
+  stroke-opacity: 0.16;
+}
+
+.badge.done path {
+  fill: var(--line-2);
+}
+
+.badge.done text {
+  fill: var(--dim);
+}
+
+.badge.next path {
+  fill: #fff;
+}
+
 .marker {
   fill: none;
   stroke: var(--magenta);
@@ -1046,6 +1068,10 @@ select:hover {
   fill: none;
   stroke: var(--magenta);
   filter: drop-shadow(0 0 1.5px var(--ink)) drop-shadow(0 0 1.5px var(--ink));
+}
+
+.ov-ring.next {
+  stroke: #fff;
 }
 
 .ov-chevrons polyline {

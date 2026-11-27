@@ -35,6 +35,8 @@ export interface Route {
   steps: Step[]
   uploaded: number[]
   missed: number[]
+  /** How many of the first steps have been played already. */
+  done?: number
 }
 
 export interface Plan {

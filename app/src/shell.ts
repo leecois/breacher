@@ -1,7 +1,7 @@
 import { desktop, type AnswerEvent, type Desktop, type ShellStatus, type UpdateInfo } from './desktop'
 import { $ } from './dom'
 import { showVersions, status as say } from './render'
-import { attachImage, show } from './session'
+import { attachImage, followed, show } from './session'
 import { remembered, state } from './state'
 import type { FrameInfo } from './types'
 
@@ -134,7 +134,13 @@ function showUpdate(shell: Desktop, update: UpdateInfo, failure?: string): void 
 export async function startShell(): Promise<void> {
   if (!desktop) return
   const shell = desktop
-  showShell(await shell.start(onAnswer, game => showVersions({ game })))
+  showShell(
+    await shell.start(
+      onAnswer,
+      game => showVersions({ game }),
+      p => followed(p.route, p.replanned),
+    ),
+  )
   wireHotkey(shell)
   const lookForUpdate = (): void => {
     void shell

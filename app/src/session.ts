@@ -3,7 +3,7 @@ import { desktop } from './desktop'
 import { $ } from './dom'
 import { render, renderRejected, ruleFinding, status, type Hooks } from './render'
 import { planOptions, remembered, shownRoute, state } from './state'
-import { settled, type FrameInfo, type Outcome, type Response, type RuleCheck } from './types'
+import { settled, type FrameInfo, type Outcome, type Response, type Route, type RuleCheck } from './types'
 
 const stage = $<HTMLElement>('stage')
 
@@ -24,7 +24,27 @@ export function redraw(animate: boolean): void {
 
 /** Sends what the window shows to the overlay over the game. */
 function publish(response: Response, frame: FrameInfo): void {
-  desktop?.publish({ response, frame: { width: frame.width, height: frame.height, source: frame.source }, route: shownRoute(), check: Boolean(state.check) })
+  const route = shownRoute()
+  desktop?.publish({ response, frame: { width: frame.width, height: frame.height, source: frame.source }, route, check: Boolean(state.check) })
+  if (route) desktop?.follow(route, state.wanted.length ? state.wanted : null, state.buffer, Boolean(state.check))
+}
+
+/** Takes in a pick the shell saw in the game: the route counts it off, or gives way to the one planned from there. */
+export function followed(route: Route, replanned: boolean): void {
+  if (!state.plan || !state.reading) return
+  if (replanned) {
+    if (state.check) state.ruleNote = 'The rule check was not played as drawn, so it was dropped. The route now makes the most of where the breach stands.'
+    state.check = null
+    state.optimistic = false
+    state.plan = { ...state.plan, route, optimistic: null }
+  } else if (state.check) {
+    state.check = { ...state.check, route }
+  } else if (state.optimistic && state.plan.optimistic) {
+    state.plan = { ...state.plan, optimistic: route }
+  } else {
+    state.plan = { ...state.plan, route }
+  }
+  redraw(false)
 }
 
 export async function readBlob(blob: Blob, source: string): Promise<void> {

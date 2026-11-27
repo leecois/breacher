@@ -18,6 +18,15 @@ export interface OverlayPayload {
   check?: boolean
 }
 
+/** News of a pick the shell saw in the game. */
+export interface ProgressEvent {
+  /** The route as it now stands, with the picks made counted off. */
+  route: Route
+  /** The pick left the route that was drawn, and this one replaces it. */
+  replanned: boolean
+  check: boolean
+}
+
 export interface ShellStatus {
   /** The version of the desktop program. */
   version: string
@@ -46,8 +55,10 @@ export interface UpdateInfo {
 }
 
 export interface Desktop {
-  /** `onGame` hears the version of the game each time a capture finds its window. */
-  start(onAnswer: (a: AnswerEvent) => void, onGame: (version: string) => void): Promise<ShellStatus>
+  /** `onGame` hears the version of the game each time a capture finds its window, `onProgress` each pick seen in it. */
+  start(onAnswer: (a: AnswerEvent) => void, onGame: (version: string) => void, onProgress: (p: ProgressEvent) => void): Promise<ShellStatus>
+  /** Say which route the window shows and under which choices, so that picks are followed against that one. */
+  follow(route: Route, wanted: boolean[] | null, buffer: number | null, check: boolean): void
   status(): Promise<ShellStatus>
   capture(): Promise<void>
   publish(payload: OverlayPayload): void
@@ -87,10 +98,11 @@ function make(): Desktop {
   const core = import('@tauri-apps/api/core')
   const event = import('@tauri-apps/api/event')
   return {
-    async start(onAnswer, onGame) {
+    async start(onAnswer, onGame, onProgress) {
       const { listen } = await event
       await listen<AnswerEvent>('answer', e => onAnswer(e.payload))
       await listen<string>('game-version', e => onGame(e.payload))
+      await listen<ProgressEvent>('progress', e => onProgress(e.payload))
       const { invoke } = await core
       return invoke<ShellStatus>('status')
     },
@@ -104,6 +116,9 @@ function make(): Desktop {
     },
     publish(payload) {
       void event.then(({ emitTo }) => emitTo('overlay', 'route', payload)).catch(() => undefined)
+    },
+    follow(route, wanted, buffer, check) {
+      void core.then(({ invoke }) => invoke('shown_route', { route, wanted, buffer, check })).catch(() => undefined)
     },
     clearOverlay() {
       void core.then(({ invoke }) => invoke('dismiss_overlay')).catch(() => undefined)

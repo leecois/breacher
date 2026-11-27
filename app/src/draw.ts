@@ -91,11 +91,15 @@ export function drawSheet(svg: SVGSVGElement, reading: Pick<Reading, 'n' | 'matr
   svg.append(zones)
 
   const pts: Array<[number, number]> = route.steps.map(s => [cx(s.col), cy(s.row)])
-  if (pts.length) {
-    const marker = el('path', { class: 'marker', d: routePath(pts), 'stroke-width': cell * 0.52, pathLength: 1 })
+  // picks already played stay on the sheet, faded; the route ahead starts at the last of them
+  const done = Math.min(route.done ?? 0, pts.length)
+  const ahead = pts.slice(Math.max(done - 1, 0))
+  if (done > 1) svg.append(el('path', { class: 'marker done', d: routePath(pts.slice(0, done)), 'stroke-width': cell * 0.52 }))
+  if (ahead.length && done < pts.length) {
+    const marker = el('path', { class: 'marker', d: routePath(ahead), 'stroke-width': cell * 0.52, pathLength: 1 })
     if (opts.animate) marker.classList.add('draw')
     svg.append(marker)
-    svg.append(chevrons(pts, 7, 'marker-chevrons', () => cell / 2))
+    svg.append(chevrons(ahead, 7, 'marker-chevrons', () => cell / 2))
   }
 
   const stepAt = new Map(route.steps.map((s, i) => [s.row * n + s.col, i]))
@@ -103,7 +107,8 @@ export function drawSheet(svg: SVGSVGElement, reading: Pick<Reading, 'n' | 'matr
   for (let r = 0; r < n; r++) {
     for (let c = 0; c < n; c++) {
       const t = el('text', { x: cx(c), y: cy(r) + 10, 'text-anchor': 'middle' }, CODES[reading.matrix[r * n + c]] ?? '??')
-      if (stepAt.has(r * n + c)) t.classList.add('on')
+      const step = stepAt.get(r * n + c)
+      if (step !== undefined) t.classList.add(step < done ? 'done' : 'on')
       codes.append(t)
     }
   }
@@ -113,6 +118,8 @@ export function drawSheet(svg: SVGSVGElement, reading: Pick<Reading, 'n' | 'matr
   route.steps.forEach((s, i) => {
     const [bx, by] = [cx(s.col) - cell * 0.34, cy(s.row) - cell * 0.31]
     const g = el('g', { class: 'badge', transform: `translate(${bx} ${by})` })
+    if (i < done) g.classList.add('done')
+    else if (i === done && done > 0) g.classList.add('next')
     if (opts.animate) {
       g.classList.add('pop')
       g.style.animationDelay = `${180 + i * 70}ms`
@@ -153,11 +160,18 @@ export function drawOverlay(svg: SVGSVGElement, reading: Reading, route: Route, 
   const pts: Array<[number, number]> = route.steps.map(s => [s.x, s.y])
   if (!pts.length) return
 
-  svg.append(el('path', { class: 'ov-marker', d: routePath(pts), 'stroke-width': g.py * 0.6 }))
-  svg.append(chevrons(pts, 9 * unit, 'ov-chevrons', horizontal => (horizontal ? g.px : g.py) / 2))
+  // over the game only what is still to play is drawn, from the cell the last pick was made in
+  const done = Math.min(route.done ?? 0, pts.length)
+  const ahead = pts.slice(Math.max(done - 1, 0))
+  if (done < pts.length) {
+    svg.append(el('path', { class: 'ov-marker', d: routePath(ahead), 'stroke-width': g.py * 0.6 }))
+    svg.append(chevrons(ahead, 9 * unit, 'ov-chevrons', horizontal => (horizontal ? g.px : g.py) / 2))
+  }
   const [rw, rh] = [g.px * 0.86, g.py * 0.7]
   route.steps.forEach((s, i) => {
-    svg.append(el('path', { class: 'ov-ring', d: cutRect(s.x - rw / 2, s.y - rh / 2, rw, rh, 9 * unit), 'stroke-width': 3 * unit }))
+    if (i < done) return
+    const next = i === done && done > 0
+    svg.append(el('path', { class: next ? 'ov-ring next' : 'ov-ring', d: cutRect(s.x - rw / 2, s.y - rh / 2, rw, rh, 9 * unit), 'stroke-width': (next ? 5 : 3) * unit }))
     const [bx, by] = [s.x - rw / 2, s.y - rh / 2]
     const badge = el('g', { class: 'ov-badge', transform: `translate(${bx} ${by})` })
     badge.append(el('path', { d: cutSquare(13 * unit, 6.5 * unit), 'stroke-width': 2.5 * unit }))
