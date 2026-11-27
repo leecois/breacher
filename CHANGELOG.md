@@ -6,6 +6,24 @@ Notable changes for people who use Breacher. The format follows
 
 ## Unreleased
 
+## 0.2.2 - 2026-11-27
+
+### Added
+
+- The capture hotkey can be changed in the window. When another program already holds it, Breacher
+  takes the next free combination and says which one.
+- **Back to start** returns from a result or a rejected frame to the start screen.
+
+### Fixed
+
+- Closing the window now ends Breacher. It used to keep running unseen and hold the hotkey, so the
+  next start reported the hotkey as already registered.
+- Starting Breacher a second time brings the running window forward instead of starting a copy.
+- A rejected capture shows the frame that was captured, where it used to show a broken picture, and
+  says when the game window was not found or is minimised.
+- The "On the screen" view is available after a capture in the desktop app.
+- The header no longer overflows a narrow window.
+
 ## 0.2.1 - 2026-11-27
 
 ### Added

@@ -1,16 +1,17 @@
-## New in 0.2.1
+## New in 0.2.2
 
-Breacher is now licensed under MIT or Apache-2.0, at your option. The code was reorganised
-internally; reading, solving and capture behave as in 0.2.0.
+Fixes for the first reports from a gaming PC:
 
-## New in 0.2.0
-
-The interface has been redrawn to sit beside the game without imitating it: black glass, signal
-yellow, cyan for anything you can touch, panels with two corners cut, Rajdhani and Chakra Petch
-type. The route stays magenta so it cannot be confused with the game's yellow-green and cyan
-when it is drawn over the game. The pick order is now shown as the buffer, one slot per position.
-
-Nothing in the reader, the solver or the capture code changed in this version.
+- **"The hotkey could not be registered (Hotkey already registered)".** Closing the window did not
+  end Breacher: it kept running unseen and kept the hotkey, so the next start could not have it.
+  Closing the window now ends the program, and starting it twice brings the running window forward.
+- **The hotkey can be changed.** The window shows the hotkey in use, and **Change** sets another.
+  If another program already holds the hotkey, Breacher takes the next free combination
+  (Ctrl Alt B, then Alt Shift B) and says which one.
+- **A rejected capture shows what was captured**, where it used to show a broken picture. It also
+  says when the game window was not found or is minimised.
+- **Back to start** returns from a result or a rejected frame to the start screen.
+- The "On the screen" view now works after a capture.
 
 This is a pre-release. The desktop app has had little testing on Windows so far, so expect rough
 edges and please report what you see.
@@ -19,14 +20,19 @@ edges and please report what you see.
 
 1. Download `Breacher_…_x64-setup.exe` and run it. Windows SmartScreen will warn that the publisher
    is unknown, because the installer is not code-signed: choose **More info**, then **Run anyway**.
-2. Start Breacher. Set the game to **Windowed Borderless** (the overlay cannot draw over exclusive
+2. If an earlier version is installed, the installer may say that Breacher is still running, even
+   with no window open. That is the fault fixed in 0.2.2: choose **OK** to let it close the old copy.
+3. Start Breacher. Set the game to **Windowed Borderless** (the overlay cannot draw over exclusive
    fullscreen).
 
 ## Use
 
-- Open a breach in the game and, **before the first pick**, press **Ctrl Shift B**. The route appears
-  in the Breacher window and, if "Draw the route over the game" is on, over the game for 45 seconds.
-- No luck with the hotkey? Two fallbacks need no capture at all:
+- Open a breach in the game and, **before the first pick**, press **Ctrl Shift B** (or the hotkey
+  the window shows). The route appears in the Breacher window and, if "Draw the route over the game"
+  is on, over the game for 45 seconds.
+- **Capture game** in the window does the same without the hotkey. It needs the game visible on a
+  screen, so it suits a second monitor; a minimised game cannot be captured.
+- No luck with capture? Two fallbacks need none at all:
   - **Watch a screenshot folder**: point it at the folder where the game, its launcher or Windows
     saves screenshots; each new screenshot is read as it appears.
   - Drop or paste (Ctrl V) a screenshot into the window.
@@ -37,7 +43,8 @@ edges and please report what you see.
 
 These have not been confirmed against the running game yet:
 
-- Does Ctrl Shift B capture the game window? (A yellow capture border may flash on Windows 10.)
+- Does the hotkey capture the game window? (A yellow capture border may flash on Windows 10.) If the
+  screen is not read, the window now shows the frame it captured: is it the game?
 - Is the matrix read correctly? Compare the "Plan" tab with the game.
 - Does the overlay line up with the cells?
 - Does following the route upload what it says?
