@@ -84,7 +84,7 @@ impl Source {
     }
 }
 
-/// Whether capturing again and again goes unnoticed: older Windows flashes a border round the window on every capture.
+/// Whether capturing again and again goes unnoticed: some systems flash a border round the window on every capture.
 pub fn recapture_is_quiet() -> bool {
     #[cfg(windows)]
     {
