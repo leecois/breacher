@@ -332,6 +332,25 @@ kbd {
   max-width: 30rem;
 }
 
+.target {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.target select {
+  width: auto;
+  max-width: 19rem;
+  padding: 0.2rem 0.4rem;
+  font-size: 0.95rem;
+}
+
+.target-note {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--dim);
+}
+
 #stage {
   grid-row: 3;
   min-height: 0;

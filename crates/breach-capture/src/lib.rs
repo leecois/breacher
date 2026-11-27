@@ -147,16 +147,41 @@ pub struct WindowInfo {
     pub app: String,
 }
 
-/// Visible, non-minimised windows with a title.
+/// The windows a player could mean: shown, titled, large enough to hold a game, and not this program's own.
 pub fn windows() -> Vec<WindowInfo> {
-    xcap::Window::all()
+    let own = std::process::id();
+    let mut found: Vec<WindowInfo> = xcap::Window::all()
         .unwrap_or_default()
         .into_iter()
-        .filter(|w| !w.is_minimized().unwrap_or(true))
+        .filter(|w| !w.is_minimized().unwrap_or(true) && w.pid().ok() != Some(own))
+        .filter(|w| w.width().unwrap_or(0) >= 320 && w.height().unwrap_or(0) >= 200)
         .filter_map(|w| {
-            let title = w.title().unwrap_or_default();
-            let app = w.app_name().unwrap_or_default();
-            (!title.trim().is_empty()).then_some(WindowInfo { title, app })
+            let title = w.title().unwrap_or_default().trim().to_string();
+            let app = w.app_name().unwrap_or_default().trim().to_string();
+            (!title.is_empty()).then_some(WindowInfo { title, app })
+        })
+        .collect();
+    found.sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase()));
+    found.dedup();
+    found
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DisplayInfo {
+    pub width: u32,
+    pub height: u32,
+    pub primary: bool,
+}
+
+/// The displays in the order [`Target::Display`] counts them: the primary one first.
+pub fn displays() -> Vec<DisplayInfo> {
+    let mut all = xcap::Monitor::all().unwrap_or_default();
+    all.sort_by_key(|m| !m.is_primary().unwrap_or(false));
+    all.iter()
+        .map(|m| DisplayInfo {
+            width: m.width().unwrap_or(0),
+            height: m.height().unwrap_or(0),
+            primary: m.is_primary().unwrap_or(false),
         })
         .collect()
 }
@@ -322,6 +347,13 @@ mod tests {
         assert_eq!((game, unnamed, browser), (Some(0), Some(1), Some(2)));
         assert_eq!(rank("Breacher", "Breacher", &GAME_HINTS), None);
         assert_eq!(rank("x", "CYBERPUNK2077.EXE", &GAME_HINTS), Some(0));
+    }
+
+    #[test]
+    fn displays_are_listed_primary_first_and_windows_never_panic() {
+        let all = displays();
+        assert!(all.iter().skip(1).all(|d| !d.primary), "{all:?}");
+        let _ = windows();
     }
 
     #[test]

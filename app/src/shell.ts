@@ -1,14 +1,43 @@
-import { desktop, type AnswerEvent, type Desktop, type ShellStatus, type UpdateInfo } from './desktop'
+import { desktop, type AnswerEvent, type Desktop, type ShellStatus, type Targets, type UpdateInfo } from './desktop'
 import { $ } from './dom'
 import { showVersions, status as say } from './render'
 import { attachImage, followed, show } from './session'
 import { remembered, state } from './state'
-import type { FrameInfo } from './types'
+import type { FrameInfo, Target } from './types'
 
 const MODIFIER = /^(Control|Shift|Alt|Meta|OS)(Left|Right)$/
 
 let current: ShellStatus | null = null
 let recording = false
+let targets: Targets = { windows: [], displays: [] }
+
+const shorten = (text: string, most = 64): string => (text.length > most ? `${text.slice(0, most - 1)}…` : text)
+
+/** Fills the list of things a capture can be pointed at, keeping the one in use on it even when it is not there right now. */
+function showTargets(chosen: Target): void {
+  const select = $<HTMLSelectElement>('target')
+  const option = (target: Target, label: string): HTMLOptionElement => {
+    const o = document.createElement('option')
+    o.value = JSON.stringify(target)
+    o.textContent = label
+    return o
+  }
+  const group = (label: string, options: HTMLOptionElement[]): HTMLOptGroupElement => {
+    const g = document.createElement('optgroup')
+    g.label = label
+    g.append(...options)
+    return g
+  }
+  const windows = targets.windows.map(w => option({ kind: 'window', value: w.title }, shorten(w.app && !w.title.toLowerCase().includes(w.app.toLowerCase()) ? `${w.title} (${w.app})` : w.title)))
+  if (chosen.kind === 'window' && !targets.windows.some(w => w.title === chosen.value)) windows.unshift(option(chosen, `${shorten(chosen.value, 52)} (not open)`))
+  const displays = targets.displays.map((d, i) => option({ kind: 'display', value: i }, `Display ${i + 1}, ${d.width} × ${d.height}${d.primary ? ', main' : ''}`))
+  if (chosen.kind === 'display' && chosen.value >= targets.displays.length) displays.push(option(chosen, `Display ${chosen.value + 1} (not connected)`))
+  select.replaceChildren(option({ kind: 'auto' }, 'The game, found by its name'), ...(windows.length ? [group('A window', windows)] : []), ...(displays.length ? [group('A whole display', displays)] : []))
+  select.value = JSON.stringify(chosen)
+  const note = $<HTMLElement>('target-note')
+  note.hidden = chosen.kind !== 'display'
+  note.textContent = 'A whole display is captured once, so the route stays up for a fixed time. Only a window can be followed pick by pick.'
+}
 
 function onAnswer(a: AnswerEvent): void {
   const frame: FrameInfo = { width: a.frame.width, height: a.frame.height, source: a.frame.source, elapsedMs: a.elapsed_ms }
@@ -40,6 +69,7 @@ function showShell(status: ShellStatus, problem?: string): void {
   $<HTMLButtonElement>('hotkey-change').textContent = recording ? 'Cancel' : 'Change'
   $<HTMLInputElement>('overlay-on').checked = status.overlay
   $<HTMLInputElement>('updates-on').checked = status.updates
+  showTargets(status.target)
   $<HTMLElement>('tray-set').hidden = status.tray === null
   $<HTMLInputElement>('tray-on').checked = status.tray === true
   $<HTMLElement>('autostart-set').hidden = status.autostart === null
@@ -161,6 +191,20 @@ export async function startShell(): Promise<void> {
     showShell(status, status.capture_ready ? undefined : 'Allow Breacher under Screen Recording in the system privacy settings, then start it again.')
   })
   $<HTMLInputElement>('overlay-on').addEventListener('change', async e => showShell(await shell.setOverlay((e.target as HTMLInputElement).checked)))
+  const target = $<HTMLSelectElement>('target')
+  const listTargets = async (): Promise<void> => {
+    targets = await shell.listTargets().catch(() => targets)
+    // a list that is open is left alone: rebuilding it would close it under the pointer
+    if (current && document.activeElement !== target) showTargets(current.target)
+  }
+  void listTargets()
+  // windows come and go, so the list is made anew each time the player turns to it
+  target.addEventListener('pointerenter', () => void listTargets())
+  window.addEventListener('focus', () => void listTargets())
+  target.addEventListener('change', async () => {
+    showShell(await shell.setTarget(JSON.parse(target.value) as Target))
+    target.blur()
+  })
   $<HTMLInputElement>('tray-on').addEventListener('change', async e => showShell(await shell.setTray((e.target as HTMLInputElement).checked)))
   $<HTMLInputElement>('autostart-on').addEventListener('change', async e => {
     try {
@@ -200,6 +244,17 @@ export function previewShell(): void {
   $<HTMLElement>('hotkey-now').textContent = 'Ctrl Shift B'
   $<HTMLInputElement>('overlay-on').checked = true
   $<HTMLInputElement>('updates-on').checked = true
+  targets = {
+    windows: [
+      { title: 'Cyberpunk 2077', app: 'Cyberpunk2077.exe' },
+      { title: 'Friends and chat', app: 'Launcher' },
+    ],
+    displays: [
+      { width: 2560, height: 1440, primary: true },
+      { width: 1920, height: 1080, primary: false },
+    ],
+  }
+  showTargets(new URLSearchParams(location.search).get('target') === 'display' ? { kind: 'display', value: 1 } : { kind: 'auto' })
   $<HTMLElement>('tray-set').hidden = false
   $<HTMLInputElement>('tray-on').checked = true
   $<HTMLElement>('autostart-set').hidden = false

@@ -1,5 +1,5 @@
 // Bridge to the desktop shell; in a plain browser `desktop` is null and the page works on dropped or pasted screenshots.
-import type { Matcher, Priority, Response, Route, RuleCheck } from './types'
+import type { Matcher, Priority, Response, Route, RuleCheck, Target } from './types'
 
 export interface AnswerEvent {
   response: Response
@@ -39,6 +39,8 @@ export interface ShellStatus {
   overlay: boolean
   /** Ask the release page for a newer version at start. */
   updates: boolean
+  /** What a capture is pointed at. */
+  target: Target
   /** Closing the window keeps the program in the tray; null where there is no tray. */
   tray: boolean | null
   /** The program starts when the player signs in; null when the system will not say. */
@@ -46,6 +48,13 @@ export interface ShellStatus {
   matcher: Matcher | null
   /** Where the shell writes its log, for bug reports. */
   log_path: string
+}
+
+/** What a capture can be pointed at right now. */
+export interface Targets {
+  windows: Array<{ title: string; app: string }>
+  /** Displays in the order a capture counts them: the main one first. */
+  displays: Array<{ width: number; height: number; primary: boolean }>
 }
 
 export interface UpdateInfo {
@@ -81,6 +90,9 @@ export interface Desktop {
   /** Ask the system for screen-capture permission (shows the system prompt). */
   allowCapture(): Promise<ShellStatus>
   setOverlay(enabled: boolean): Promise<ShellStatus>
+  /** The windows and displays that are there to capture at this moment. */
+  listTargets(): Promise<Targets>
+  setTarget(target: Target): Promise<ShellStatus>
   setUpdates(enabled: boolean): Promise<ShellStatus>
   setTray(enabled: boolean): Promise<ShellStatus>
   setAutostart(enabled: boolean): Promise<ShellStatus>
@@ -169,6 +181,14 @@ function make(): Desktop {
     async setOverlay(enabled) {
       const { invoke } = await core
       return invoke<ShellStatus>('set_overlay', { enabled })
+    },
+    async listTargets() {
+      const { invoke } = await core
+      return invoke<Targets>('list_targets')
+    },
+    async setTarget(target) {
+      const { invoke } = await core
+      return invoke<ShellStatus>('set_target', { target })
     },
     async setUpdates(enabled) {
       const { invoke } = await core

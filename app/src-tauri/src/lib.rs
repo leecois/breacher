@@ -157,6 +157,8 @@ struct ShellStatus {
     watch_dir: Option<String>,
     overlay: bool,
     updates: bool,
+    /// What a capture looks for: the game on its own, a window the player named, or a display.
+    target: Target,
     /// Whether closing the window keeps the program in the tray; `None` where there is no tray.
     tray: Option<bool>,
     autostart: Option<bool>,
@@ -209,6 +211,7 @@ fn status_of(shell: &Shell) -> ShellStatus {
         watch_dir: settings.watch_dir.map(|p| p.display().to_string()),
         overlay: settings.overlay,
         updates: settings.updates,
+        target: settings.target,
         tray: shell.tray.load(Ordering::SeqCst).then_some(settings.tray),
         autostart: *shell.autostart.lock().unwrap(),
         log_path: shell.log_path.display().to_string(),
@@ -335,7 +338,7 @@ fn run_capture(app: &AppHandle) {
             log(&shell, &format!("capture failed (target {:?}): {e}", settings.target));
             let hint = match e {
                 CaptureError::Permission => "Screen capture is off for Breacher. Allow it in the system's privacy settings, then start Breacher again.".to_string(),
-                CaptureError::NoTarget(_) => "The window to capture is not open.".to_string(),
+                CaptureError::NoTarget(_) => "What was chosen under Capture is not there. Choose another window or display in Breacher.".to_string(),
                 CaptureError::Minimised => format!("The game is minimised. Switch to it and open a breach, {}.", next_step(&shell)),
                 CaptureError::Backend(_) => "The screen could not be captured. Drop a screenshot here instead.".to_string(),
             };
@@ -375,7 +378,7 @@ fn run_capture(app: &AppHandle) {
     );
     let lost = cap.fallback.then(|| {
         format!(
-            "The game window was not found, so the whole screen was captured. Open a breach in the game, {}.",
+            "The game window was not found, so the whole screen was captured. Open a breach in the game, {}. If the game is open, choose its window under Capture in Breacher.",
             next_step(&shell)
         )
     });
@@ -415,15 +418,7 @@ fn run_capture(app: &AppHandle) {
         let check = told.check.is_some();
         let route = told.check.map_or_else(|| plan.route.clone(), |c| c.route);
         if again.is_some() {
-            let followed = follow::Followed {
-                reading: reading.clone(),
-                route: route.clone(),
-                check,
-                wanted: None,
-                buffer: None,
-                played: Vec::new(),
-                fates: Vec::new(),
-            };
+            let followed = follow::Followed::new(reading.clone(), route.clone(), check);
             *shell.followed.lock().unwrap() = Some((followed, response.clone(), meta.clone()));
         }
         let route = Some(route);
@@ -483,33 +478,20 @@ fn follow_look(app: &AppHandle, frame: &Frame) -> (follow::Look, bool) {
         let breach = api::breach_on_screen(frame);
         return (if breach { follow::Look::Breach } else { follow::Look::Other }, false);
     };
-    let buffer = followed.reading.buffer;
-    let seen = progress::look(frame, &followed.reading.geometry, buffer);
-    let settled = followed.settled(&seen.fates);
-    let step = if seen.matrix_shown(buffer) && !seen.over() {
-        followed.see(&seen, priority, matcher).map(|step| (step, followed.played.len()))
-    } else {
-        None
-    };
+    let looked = followed.look(frame, priority, matcher);
+    let picks = followed.played.len();
     drop(guard);
-    for (daemon, fate) in &settled {
+    for (daemon, fate) in &looked.settled {
         let what = if *fate == progress::Fate::Installed { "installed" } else { "failed" };
         log(&shell, &format!("daemon {daemon} {what}"));
     }
-    if let Some((step, picks)) = step {
+    if let Some(step) = looked.step {
         let replanned = step == follow::Step::Replanned;
         let what = if replanned { "off the route, the rest planned again" } else { "on the route" };
         log(&shell, &format!("pick {picks} seen: {what}"));
         tell_progress(app, &shell, replanned);
     }
-    let look = if seen.over() {
-        follow::Look::Over
-    } else if seen.matrix_shown(buffer) {
-        follow::Look::Breach
-    } else {
-        follow::Look::Other
-    };
-    (look, step.is_some() || !settled.is_empty())
+    (looked.sight.into(), looked.step.is_some() || !looked.settled.is_empty())
 }
 
 /// Keeps the route up for as long as the breach screen is, and takes it down when the screen goes.
@@ -725,18 +707,31 @@ fn shown_route(
     let settled = {
         let mut guard = shell.followed.lock().unwrap();
         let Some((followed, ..)) = guard.as_mut() else { return };
-        (followed.route, followed.wanted, followed.buffer, followed.check) =
-            (route, wanted, buffer, check);
-        // a route the window planned afresh knows nothing of the picks already made
-        if followed.played.is_empty() {
-            None
-        } else {
-            followed.settle(priority, matcher)
-        }
+        followed.adopt(route, wanted, buffer, check, priority, matcher)
     };
     if let Some(step) = settled {
         tell_progress(&app, &shell, step == follow::Step::Replanned);
     }
+}
+
+/// What a capture can be pointed at right now.
+#[derive(Serialize)]
+struct Targets {
+    windows: Vec<breach_capture::WindowInfo>,
+    displays: Vec<breach_capture::DisplayInfo>,
+}
+
+#[tauri::command(async)]
+fn list_targets() -> Targets {
+    Targets { windows: breach_capture::windows(), displays: breach_capture::displays() }
+}
+
+#[tauri::command]
+fn set_target(shell: State<Shell>, target: Target) -> ShellStatus {
+    log(&shell, &format!("capture target set to {target:?}"));
+    shell.settings.lock().unwrap().target = target;
+    save(&shell);
+    status_of(&shell)
 }
 
 #[tauri::command]
@@ -1092,8 +1087,19 @@ pub fn run() {
                             } else {
                                 "not tried".to_string()
                             };
+                            // what the list of capture targets finds here, and whether a display chosen from it can be captured
+                            let targets = {
+                                let found = list_targets();
+                                let chosen = set_target(handle.state(), Target::Display(0)).target;
+                                let grabbed = match breach_capture::capture(&chosen) {
+                                    Ok(c) => format!("captured at {}x{}", c.width, c.height),
+                                    Err(e) => format!("not captured ({e})"),
+                                };
+                                let back = set_target(handle.state(), Target::Auto).target;
+                                format!("{} windows, {} displays, display 1 {grabbed}, back to {back:?}", found.windows.len(), found.displays.len())
+                            };
                             format!(
-                                "selftest: {summary} | frame {}x{} | {:.1} ms | hotkey: {} | windows: main={} overlay={} | capture permission: {:?} | frame url: {} | update: {update} | version the system reports for this program: {own} | report: {report} | start at sign-in: {autostart} | rule check: {check}",
+                                "selftest: {summary} | frame {}x{} | {:.1} ms | hotkey: {} | windows: main={} overlay={} | capture permission: {:?} | frame url: {} | update: {update} | version the system reports for this program: {own} | report: {report} | start at sign-in: {autostart} | rule check: {check} | capture targets: {targets}",
                                 meta.width,
                                 meta.height,
                                 started.elapsed().as_secs_f32() * 1e3,
@@ -1130,7 +1136,7 @@ pub fn run() {
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![status, capture, allow_capture, set_priority, set_matcher, set_checking, set_overlay, dismiss_overlay, shown_route, set_updates, set_tray, set_autostart, report::save_report, watch_folder, pause_hotkey, set_hotkey, last_frame_url,
+        .invoke_handler(tauri::generate_handler![status, capture, allow_capture, set_priority, set_matcher, set_checking, set_overlay, dismiss_overlay, shown_route, list_targets, set_target, set_updates, set_tray, set_autostart, report::save_report, watch_folder, pause_hotkey, set_hotkey, last_frame_url,
             update::check_update,
             update::install_update,
             update::open_downloads])

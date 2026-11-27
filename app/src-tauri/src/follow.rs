@@ -1,9 +1,6 @@
 //! Following a breach after its route is drawn: decides, look by look, when the route has no screen left to sit on.
 
-use breach_core::plan::{plan_from, PlanOptions, Priority, Route};
-use breach_core::progress::{advance, Fate, Look as Seen};
-use breach_core::reader::Reading;
-use breach_core::solver::Matcher;
+pub use breach_core::follow::{Followed, Sight, Step};
 use std::time::Duration;
 
 /// Time between two looks at the game.
@@ -36,96 +33,6 @@ pub fn keep(kept: &mut Vec<Kept>, look: Kept) {
     }
 }
 
-/// The breach being followed: what was read, the route that is drawn and the picks seen so far.
-pub struct Followed {
-    pub reading: Reading,
-    pub route: Route,
-    /// The route is a rule check; leaving it turns it into an ordinary route.
-    pub check: bool,
-    /// The player's choices for this screen, as the window last reported them.
-    pub wanted: Option<Vec<bool>>,
-    pub buffer: Option<usize>,
-    /// Cells picked so far, in order.
-    pub played: Vec<usize>,
-    /// What the game has made of each daemon so far.
-    pub fates: Vec<Fate>,
-}
-
-/// What a newly seen pick did to the route.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Step {
-    /// The pick was the next one of the route.
-    Onward,
-    /// The pick left the route, and the rest was planned again from where the breach stands.
-    Replanned,
-}
-
-impl Followed {
-    fn on_route(&self) -> bool {
-        let n = self.reading.n;
-        self.played.len() <= self.route.steps.len()
-            && self.played.iter().zip(&self.route.steps).all(|(&c, s)| c == s.row * n + s.col)
-    }
-
-    /// Takes in the bars the game has laid over daemons; returns those that are new, counted from one.
-    pub fn settled(&mut self, seen: &[Fate]) -> Vec<(usize, Fate)> {
-        self.fates.resize(seen.len().max(self.fates.len()), Fate::Pending);
-        let mut news = Vec::new();
-        for (i, &fate) in seen.iter().enumerate() {
-            if fate != Fate::Pending && self.fates[i] != fate {
-                self.fates[i] = fate;
-                news.push((i + 1, fate));
-            }
-        }
-        news
-    }
-
-    /// The daemons the game installed and those it failed, counted from one, once any is settled.
-    pub fn outcome(&self) -> Option<(Vec<usize>, Vec<usize>)> {
-        let of =
-            |fate| (1..=self.fates.len()).filter(|i| self.fates[i - 1] == fate).collect::<Vec<_>>();
-        let (installed, failed) = (of(Fate::Installed), of(Fate::Failed));
-        (!installed.is_empty() || !failed.is_empty()).then_some((installed, failed))
-    }
-
-    /// Takes in what a look shows; says what changed when it shows a pick not seen before.
-    pub fn see(
-        &mut self,
-        seen: &Seen,
-        priority: Priority,
-        matcher: Option<Matcher>,
-    ) -> Option<Step> {
-        let n = self.reading.n;
-        let played = advance(n, &self.played, seen)?;
-        if played.len() == self.played.len() {
-            return None;
-        }
-        self.played = played;
-        self.settle(priority, matcher)
-    }
-
-    /// Brings the route in line with the picks made: counts them off, or plans the rest again.
-    pub fn settle(&mut self, priority: Priority, matcher: Option<Matcher>) -> Option<Step> {
-        let n = self.reading.n;
-        if self.on_route() {
-            self.route.done = self.played.len();
-            return Some(Step::Onward);
-        }
-        let opt = PlanOptions {
-            buffer: self.buffer,
-            wanted: self.wanted.clone(),
-            priority,
-            matcher,
-            ..PlanOptions::default()
-        };
-        let picks: Vec<(usize, usize)> = self.played.iter().map(|&c| (c / n, c % n)).collect();
-        let plan = plan_from(&self.reading, &opt, &picks).ok()?;
-        self.route = plan.route;
-        self.check = false;
-        Some(Step::Replanned)
-    }
-}
-
 /// What one look at the game showed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Look {
@@ -135,6 +42,16 @@ pub enum Look {
     Over,
     Minimised,
     Failed,
+}
+
+impl From<Sight> for Look {
+    fn from(sight: Sight) -> Self {
+        match sight {
+            Sight::Breach => Look::Breach,
+            Sight::Other => Look::Other,
+            Sight::Over => Look::Over,
+        }
+    }
 }
 
 #[derive(Default)]
@@ -178,87 +95,7 @@ pub fn until_gone(mut look: impl FnMut() -> Option<Look>) -> Option<&'static str
 #[cfg(test)]
 mod tests {
     use super::*;
-    use breach_core::plan::plan;
-    use breach_core::progress::Mark;
-    use breach_core::reader::{Geometry, Quality, Timings};
     use Look::*;
-
-    fn followed() -> Followed {
-        // A B down the first column; after a wrong first pick the same daemon is still there to be had
-        let reading = Reading {
-            n: 3,
-            matrix: vec![0, 2, 2, 1, 0, 2, 2, 1, 2],
-            sequences: vec![vec![0, 1]],
-            buffer: 4,
-            geometry: Geometry {
-                x0: 100.0,
-                y0: 200.0,
-                px: 64.0,
-                py: 64.0,
-                n: 3,
-                seq_x0: 800.0,
-                seq_pitch_x: 42.0,
-                seq_rows: vec![],
-                buffer_y: 40.0,
-            },
-            quality: Quality::default(),
-            timings: Timings::default(),
-        };
-        let route = plan(&reading, &PlanOptions::default()).route;
-        Followed {
-            reading,
-            route,
-            check: false,
-            wanted: None,
-            buffer: None,
-            played: Vec::new(),
-            fates: Vec::new(),
-        }
-    }
-
-    fn seen(marks: &[(usize, Mark)], committed: usize) -> Seen {
-        let mut cells = vec![Mark::Code; 9];
-        for &(cell, mark) in marks {
-            cells[cell] = mark;
-        }
-        Seen { cells, committed, fates: Vec::new() }
-    }
-
-    #[test]
-    fn picks_on_the_route_are_counted_off() {
-        let mut f = followed();
-        assert_eq!(f.route.steps.len(), 2);
-        assert_eq!(f.see(&seen(&[(0, Mark::Hover)], 0), Priority::Count, None), None);
-        assert_eq!(f.see(&seen(&[(0, Mark::Flash)], 1), Priority::Count, None), Some(Step::Onward));
-        assert_eq!((f.route.done, f.played.clone()), (1, vec![0]));
-        // the same look again is no news
-        assert_eq!(f.see(&seen(&[(0, Mark::Used)], 1), Priority::Count, None), None);
-        let last = seen(&[(0, Mark::Used), (3, Mark::Flash)], 2);
-        assert_eq!(f.see(&last, Priority::Count, None), Some(Step::Onward));
-        assert_eq!(f.route.done, 2);
-    }
-
-    #[test]
-    fn a_pick_off_the_route_plans_the_rest_again() {
-        let mut f = followed();
-        f.check = true;
-        let wrong = seen(&[(1, Mark::Flash)], 1);
-        assert_eq!(f.see(&wrong, Priority::Count, None), Some(Step::Replanned));
-        let cells: Vec<usize> = f.route.steps.iter().map(|s| s.row * 3 + s.col).collect();
-        assert_eq!(cells, vec![1, 4, 3]);
-        assert_eq!((f.route.done, f.route.uploaded.clone(), f.check), (1, vec![0], false));
-        // and the new route is followed like any other
-        let next = seen(&[(1, Mark::Used), (4, Mark::Flash)], 2);
-        assert_eq!(f.see(&next, Priority::Count, None), Some(Step::Onward));
-        assert_eq!(f.route.done, 2);
-    }
-
-    #[test]
-    fn a_look_that_does_not_fit_changes_nothing() {
-        let mut f = followed();
-        assert_eq!(f.see(&seen(&[(8, Mark::Used)], 1), Priority::Count, None), None);
-        assert!(f.played.is_empty() && f.route.done == 0);
-    }
 
     fn play(looks: &[Look]) -> (Option<&'static str>, usize) {
         let mut taken = 0;
@@ -286,18 +123,6 @@ mod tests {
     fn it_comes_down_at_once_when_every_daemon_is_settled() {
         let (why, taken) = play(&[Breach, Breach, Over]);
         assert_eq!((why, taken), (Some("the breach is over"), 3));
-    }
-
-    #[test]
-    fn the_bars_the_game_lays_over_daemons_are_noted_once() {
-        let mut f = followed();
-        assert_eq!(f.outcome(), None);
-        assert_eq!(f.settled(&[Fate::Pending]), vec![]);
-        assert_eq!(f.settled(&[Fate::Installed]), vec![(1, Fate::Installed)]);
-        assert_eq!(f.settled(&[Fate::Installed]), vec![]);
-        // a bar hidden for a moment does not unsettle the daemon
-        assert_eq!(f.settled(&[Fate::Pending]), vec![]);
-        assert_eq!(f.outcome(), Some((vec![1], vec![])));
     }
 
     #[test]

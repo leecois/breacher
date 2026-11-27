@@ -90,6 +90,9 @@ export interface PlanOptions {
   buffer_fallback?: number
 }
 
+/** What a capture is pointed at: the game found on its own, a window by its title, or a display. */
+export type Target = { kind: 'auto' } | { kind: 'window'; value: string } | { kind: 'display'; value: number }
+
 export const CODES = ['1C', '55', '7A', 'BD', 'E9', 'FF'] as const
 
 /** A frame as the UI knows it: where it came from and how big it was. */
