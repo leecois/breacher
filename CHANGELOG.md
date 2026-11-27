@@ -6,6 +6,21 @@ Notable changes for people who use Breacher. The format follows
 
 ## Unreleased
 
+## 0.3.0 - 2026-11-28
+
+### Added
+
+- Breacher runs in a browser at <https://leecois.github.io/breacher/>. Shown the game by screen
+  sharing, the page reads each breach as it opens, counts off the picks and plans again after a
+  pick off the route. Where the browser has one, a floating window keeps the route above the game.
+- **Capture** in the desktop window chooses what the hotkey captures: the game found by its name, a
+  window from the list of those that are open, or a whole display.
+
+### Changed
+
+- The follower that keeps a route in step with the picks is part of the core, so the desktop
+  program and the page run the same code.
+
 ## 0.2.9 - 2026-11-28
 
 ### Changed

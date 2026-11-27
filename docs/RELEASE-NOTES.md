@@ -1,3 +1,19 @@
+## New in 0.3.0
+
+- **Breacher in a browser.** <https://leecois.github.io/breacher/> needs no download. Press
+  **Share the game screen**, choose the game's window or its screen, and the page reads each
+  breach as it opens and counts off your picks, planning again after a pick off the route. The
+  picture is read inside the page and goes nowhere else.
+- **A route that floats.** A page cannot draw over the game, so in Chrome and Edge **Float the
+  route over the game** opens a small window that stays above a borderless game. Elsewhere the
+  route is on the page, for a second screen.
+- **Choose what is captured.** **Capture** in the desktop window lists the open windows and the
+  displays. Leave it on "The game, found by its name" unless Breacher does not find your game, as
+  can happen when it runs through a streaming service: then pick its window. A whole display works
+  too, but its route stays for a fixed time, because only a window is followed pick by pick.
+- Screen sharing was tested by playing recorded looks at a real breach into the page, not yet
+  with a live game. If it misses a breach, **Read now** reads the screen as it is.
+
 ## New in 0.2.9
 
 - **Keeps up with fast play.** Breacher now looks at the game every 0.4 seconds while a route is
