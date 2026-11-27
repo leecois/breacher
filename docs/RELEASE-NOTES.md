@@ -1,4 +1,13 @@
-## New in 0.2.2
+## New in 0.2.3
+
+- **Updates.** An installed copy looks for a newer version when it starts and installs it when you
+  say so, after checking that it carries the project's signature. "Look for updates at start" turns
+  the check off.
+- **Runs without installing.** `Breacher_…_x64-portable.exe` starts from wherever you put it. It
+  tells you about a newer version and opens the download page, since it has no installation to
+  replace.
+
+## Fixed in 0.2.2
 
 Fixes for the first reports from a gaming PC:
 

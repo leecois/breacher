@@ -6,6 +6,8 @@ Notable changes for people who use Breacher. The format follows
 
 ## Unreleased
 
+## 0.2.3 - 2026-11-27
+
 ### Added
 
 - An installed copy looks for a newer release when it starts and installs it on request, after
