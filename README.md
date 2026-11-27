@@ -40,6 +40,9 @@ There are three ways to give Breacher a screen:
 
 Capture before the first pick. A breach that has already started is rejected, not guessed at.
 
+The bottom of the window shows which Breacher is running and, after a capture of the game, which
+version of the game it looked at. Both belong in a bug report.
+
 The same reader and solver are available on the command line:
 
 ```

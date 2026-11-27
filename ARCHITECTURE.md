@@ -25,7 +25,7 @@ other crates and the app only feed it pixels and show what it returns.
 | `crates/breach-core` | The reader (`image`, `glyph`, `reader`), the solver (`solver`), the planner (`plan`) and the one-call entry point for front ends (`api`). Depends only on `serde`. |
 | `crates/breach-core/src/reader` | One module per stage of the reader: `segment` (strokes), `lattice` (the matrix), `sequences`, `buffer`, with `region`, `measure` and `debug` as shared helpers. `reader.rs` holds the public types and runs the stages in order. |
 | `crates/breach-cli` | The `breach` command. `read` and `rule-probe` for players; `eval`, `learn-templates`, `calibrate`, `separation` and `bench-solver` for development. |
-| `crates/breach-capture` | One-shot screen capture: finds the game window, checks permission without prompting, returns the frame and where it sits on screen. |
+| `crates/breach-capture` | One-shot screen capture: finds the game window, checks permission without prompting, returns the frame and where it sits on screen. `version` reads the game's version from its executable. |
 | `crates/breach-wasm` | `breach-core` behind a plain C ABI for the browser. No binding generator is involved. |
 | `app/src` | The page, in TypeScript. `core.ts` loads the WebAssembly module. `state.ts` holds what the player has on screen, `session.ts` takes a frame through reading and planning, `render.ts` and `draw.ts` show the result. `controls.ts`, `samples.ts` and `shell.ts` wire up input, and `desktop.ts` is the bridge to the shell. |
 | `app/src-tauri` | The desktop shell, a Tauri application: global hotkey (`hotkey.rs` chooses and names the combination), overlay window (`follow.rs` decides when its route comes down), watched folder, updates (`update.rs`), settings and log. |
