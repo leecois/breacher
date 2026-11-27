@@ -1,3 +1,13 @@
+## New in 0.2.6
+
+- **Told in the game.** When a capture cannot be read, a line over the game says why for a few
+  seconds: no breach screen, a breach already under way, a code that is covered.
+- **Save a report.** At the bottom right of the window. It writes the last frame, what was read
+  from it, the log and the versions into `Documents\Breacher reports` and opens the folder. Attach
+  those files when something is wrong; nothing is sent anywhere by Breacher itself.
+- **Start when you sign in.** Tick it and Breacher is in the tray, hotkey ready, every time you log
+  on.
+
 ## New in 0.2.5
 
 - **Stays in the tray.** Closing the window no longer ends Breacher: it stays in the tray (the

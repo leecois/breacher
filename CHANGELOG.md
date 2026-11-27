@@ -6,6 +6,15 @@ Notable changes for people who use Breacher. The format follows
 
 ## Unreleased
 
+## 0.2.6 - 2026-11-28
+
+### Added
+
+- When a capture cannot be read, a line over the game says why for a few seconds.
+- **Save a report** writes the last frame, its reading, the log and the versions into a folder
+  under your documents.
+- "Start when you sign in" starts Breacher in the tray every time you log on.
+
 ## 0.2.5 - 2026-11-27
 
 ### Added
