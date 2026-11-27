@@ -167,13 +167,14 @@ routes planned afterwards.
 - **Desktop shell.** On the hotkey it captures the game window, reads it natively, sends the answer
   to the main window and the route to the overlay. The overlay is a transparent, click-through
   window that never takes focus. While a route is up the shell looks at the game window again
-  several times a second and takes the route down once no code matrix has been on it for three
-  looks in a row, or the game is minimised. Where a repeated capture would flash a border round
+  every 0.4 seconds and takes the route down as soon as the game has settled every daemon, once
+  the matrix has been gone for four looks in a row, or when the game is minimised. Where a repeated capture would flash a border round
   the game, as on Windows 10, the route stays up for a fixed time. A capture that is not read
   puts a short notice on the same overlay, since nothing else reaches a player inside the game.
   The same looks are read for picks. `progress::look` tells, by colour alone, which cells show
   their code, the pointer's box, the flash of a pick or the brackets left by one, and how many
-  buffer slots are filled for good; the code previewed under the pointer does not count.
+  buffer slots are filled for good; the code previewed under the pointer does not count. It also
+  reads the green and red bars the game lays over daemons it has installed or failed.
   `progress::advance` puts newly picked cells into the only order the rules allow, and refuses a
   look that does not fit. The shell then counts the picks off the route, or plans the rest again
   with `plan_from` when a pick left it. A look that is refused changes nothing. A watched folder reads new screenshots as they appear and needs no
