@@ -11,6 +11,27 @@ const FAILED: u32 = 6;
 /// Looks after which the route comes down whatever is on screen, about five minutes.
 const LOOKS: u32 = 430;
 
+/// Seconds between two looks kept for a report.
+const KEEP_EVERY: u32 = 2;
+/// Looks kept for a report: the most recent ones, which is where a breach is played out.
+const KEEP: usize = 8;
+
+/// A look kept for a report: the seconds since the capture and the frame, encoded.
+pub type Kept = (u32, Vec<u8>);
+
+/// Keeps a look for a report if the last one kept is old enough; `encode` runs only then.
+pub fn keep(kept: &mut Vec<Kept>, seconds: u32, encode: impl FnOnce() -> Option<Vec<u8>>) {
+    if kept.last().is_some_and(|(at, _)| seconds < at + KEEP_EVERY) {
+        return;
+    }
+    if let Some(frame) = encode() {
+        kept.push((seconds, frame));
+        if kept.len() > KEEP {
+            kept.remove(0);
+        }
+    }
+}
+
 /// What one look at the game showed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Look {
@@ -101,6 +122,23 @@ mod tests {
     fn a_game_that_cannot_be_captured_is_given_up_on() {
         let (why, taken) = play(&[Failed; 6]);
         assert_eq!((why, taken), (Some("the game could no longer be captured"), 6));
+    }
+
+    #[test]
+    fn looks_are_kept_two_seconds_apart_and_only_the_latest_eight() {
+        let mut kept = Vec::new();
+        let mut encoded = 0;
+        for tenth in 0..400u32 {
+            keep(&mut kept, tenth / 10, || {
+                encoded += 1;
+                Some(vec![tenth as u8])
+            });
+        }
+        let seconds: Vec<u32> = kept.iter().map(|(at, _)| *at).collect();
+        assert_eq!(seconds, vec![24, 26, 28, 30, 32, 34, 36, 38]);
+        assert_eq!(encoded, 20, "a frame is encoded only when it is kept");
+        keep(&mut kept, 40, || None);
+        assert_eq!(kept.len(), 8, "a frame that does not encode is not kept");
     }
 
     #[test]

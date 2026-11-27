@@ -53,6 +53,14 @@ pub fn write(app: &AppHandle, stamp: &str) -> Result<(PathBuf, Vec<&'static str>
         let json = serde_json::to_vec_pretty(answer).map_err(|e| e.to_string())?;
         files.push(put("answer.json", &json)?);
     }
+    let looks = shell.looks.lock().unwrap().clone();
+    for (i, (seconds, frame)) in looks.iter().enumerate() {
+        let file = dir.join(format!("look-{:02}-at-{seconds}s.jpg", i + 1));
+        std::fs::write(file, frame).map_err(|e| e.to_string())?;
+    }
+    if !looks.is_empty() {
+        files.push("looks");
+    }
     if let Ok(log) = std::fs::read(&shell.log_path) {
         files.push(put("breacher.log", &log)?);
     }

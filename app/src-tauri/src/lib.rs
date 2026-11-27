@@ -10,7 +10,7 @@ use breach_capture::{CaptureError, Permission, Target};
 use breach_core::api::{self, Response};
 use breach_core::glyph::Templates;
 use breach_core::image::{Frame, PixelFormat};
-use breach_core::plan::{PlanOptions, Priority, Route};
+use breach_core::plan::{rule_check, PlanOptions, Priority, Route, RuleCheck};
 use breach_core::reader::{ReadOptions, Stage};
 use breach_core::solver::Matcher;
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
@@ -90,6 +90,8 @@ struct Shell {
     last_answer: Mutex<Option<Answer>>,
     /// The game's version as last seen by a capture.
     game: Mutex<Option<String>>,
+    /// A few looks at the last breach that was followed, for a report.
+    looks: Mutex<Vec<follow::Kept>>,
     /// Whether the program starts when the player signs in; `None` when the system will not say.
     autostart: Mutex<Option<bool>>,
     /// Bumped on every capture; a pending "clear the overlay" only fires for its own capture.
@@ -102,6 +104,8 @@ struct Shell {
     version: String,
     /// Whether the system gave a tray icon: without one a closed window could not be brought back.
     tray: AtomicBool,
+    /// The player asked for the next breach to be spent on checking the wrong-pick rule.
+    checking: AtomicBool,
 }
 
 #[derive(Clone, Serialize)]
@@ -116,6 +120,8 @@ struct Answer {
     response: Response,
     frame: FrameMeta,
     elapsed_ms: f32,
+    /// The rule check to play on this screen in place of the route, when one was asked for.
+    check: Option<RuleCheck>,
 }
 
 #[derive(Clone, Serialize)]
@@ -123,6 +129,8 @@ struct OverlayPayload {
     response: Response,
     frame: FrameMeta,
     route: Option<Route>,
+    /// The route is a rule check, to be played exactly as drawn.
+    check: bool,
 }
 
 #[derive(Clone, Serialize)]
@@ -225,7 +233,7 @@ fn answer(
     source: String,
     started: Instant,
     lost: Option<String>,
-) -> (Response, FrameMeta) {
+) -> Answer {
     let shell = app.state::<Shell>();
     let (priority, matcher, last_buffer) = {
         let s = shell.settings.lock().unwrap();
@@ -277,10 +285,16 @@ fn answer(
     );
     // stored first: the page asks for this frame as soon as it hears the answer
     *shell.last.lock().unwrap() = Some(LastFrame { width, height, rgba });
-    let told = Answer { response: response.clone(), frame: meta.clone(), elapsed_ms };
+    let check = match &response {
+        Response::Ok { reading, .. } if shell.checking.load(Ordering::SeqCst) => {
+            rule_check(reading, &PlanOptions { priority, matcher, ..PlanOptions::default() })
+        }
+        _ => None,
+    };
+    let told = Answer { response, frame: meta, elapsed_ms, check };
     *shell.last_answer.lock().unwrap() = Some(told.clone());
-    let _ = app.emit_to("main", "answer", told);
-    (response, meta)
+    let _ = app.emit_to("main", "answer", told.clone());
+    told
 }
 
 /// How long a notice about an unread capture stays over the game.
@@ -318,6 +332,7 @@ fn run_capture(app: &AppHandle) {
                     response: rejected(e.to_string(), &hint),
                     frame: FrameMeta { width: 0, height: 0, source: "Capture".into() },
                     elapsed_ms: 0.0,
+                    check: None,
                 },
             );
             return;
@@ -350,7 +365,8 @@ fn run_capture(app: &AppHandle) {
             next_step(&shell)
         )
     });
-    let (response, meta) = answer(app, cap.rgba, cap.width, cap.height, cap.source, started, lost);
+    let told = answer(app, cap.rgba, cap.width, cap.height, cap.source, started, lost);
+    let (response, meta) = (told.response, told.frame);
     if !settings.overlay {
         return;
     }
@@ -381,12 +397,17 @@ fn run_capture(app: &AppHandle) {
                 return;
             }
         };
-        let route = Some(plan.route.clone());
+        // a rule check takes the place of the route: its picks are the ones to play
+        let check = told.check.is_some();
+        let route = Some(told.check.map_or_else(|| plan.route.clone(), |c| c.route));
         let _ = app.emit_to(
             "overlay",
             "route",
-            OverlayPayload { response: response.clone(), frame: meta, route },
+            OverlayPayload { response: response.clone(), frame: meta, route, check },
         );
+        if check {
+            log(&shell, "the route drawn is a rule check");
+        }
         log(
             &shell,
             match &again {
@@ -412,6 +433,7 @@ fn follow_breach(app: &AppHandle, game: &breach_capture::Source, generation: u64
     let shell = app.state::<Shell>();
     let started = Instant::now();
     let ours = || shell.generation.load(Ordering::SeqCst) == generation;
+    shell.looks.lock().unwrap().clear();
     let why = follow::until_gone(|| {
         std::thread::sleep(follow::INTERVAL);
         if !ours() {
@@ -426,6 +448,11 @@ fn follow_breach(app: &AppHandle, game: &breach_capture::Source, generation: u64
                     &cap.rgba,
                 );
                 if api::breach_on_screen(&frame) {
+                    // a breach being played is what a report about it needs to show
+                    let seconds = started.elapsed().as_secs() as u32;
+                    follow::keep(&mut shell.looks.lock().unwrap(), seconds, || {
+                        jpeg(cap.width, cap.height, &cap.rgba, 90)
+                    });
                     follow::Look::Breach
                 } else {
                     follow::Look::Other
@@ -537,6 +564,12 @@ fn allow_capture(shell: State<Shell>) -> ShellStatus {
 fn set_priority(shell: State<Shell>, priority: Priority) {
     shell.settings.lock().unwrap().priority = priority;
     save(&shell);
+}
+
+/// Spends the next breach, and every one after it until told otherwise, on checking the wrong-pick rule.
+#[tauri::command]
+fn set_checking(shell: State<Shell>, on: bool) {
+    shell.checking.store(on, Ordering::SeqCst);
 }
 
 #[tauri::command]
@@ -657,6 +690,16 @@ fn set_hotkey(
     save(&shell);
     log(&shell, &format!("hotkey set to {}", hotkey::label(&chosen)));
     Ok(status_of(&shell))
+}
+
+fn jpeg(width: u32, height: u32, rgba: &[u8], quality: u8) -> Option<Vec<u8>> {
+    let rgb: Vec<u8> = rgba.chunks_exact(4).flat_map(|p| [p[0], p[1], p[2]]).collect();
+    let image = image::RgbImage::from_raw(width, height, rgb)?;
+    let mut bytes = Vec::new();
+    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut bytes, quality)
+        .encode_image(&image)
+        .ok()?;
+    Some(bytes)
 }
 
 /// The last frame as a JPEG data URL, scaled down for display.
@@ -798,6 +841,7 @@ pub fn run() {
                 last: Mutex::new(None),
                 last_answer: Mutex::new(None),
                 game: Mutex::new(None),
+                looks: Mutex::new(Vec::new()),
                 autostart: Mutex::new(None),
                 generation: AtomicU64::new(0),
                 watcher: Mutex::new(None),
@@ -805,6 +849,7 @@ pub fn run() {
                 hotkey: Mutex::new(hotkey::Binding::default()),
                 version: app.package_info().version.to_string(),
                 tray: AtomicBool::new(false),
+                checking: AtomicBool::new(false),
             });
             let tray = add_tray(app.handle());
             app.state::<Shell>().tray.store(tray.is_ok(), Ordering::SeqCst);
@@ -871,7 +916,8 @@ pub fn run() {
                         Ok(img) => {
                             let rgba = img.to_rgba8();
                             let (w, h) = (rgba.width(), rgba.height());
-                            let (response, meta) = answer(&handle, rgba.into_raw(), w, h, "selftest".into(), started, None);
+                            let told = answer(&handle, rgba.into_raw(), w, h, "selftest".into(), started, None);
+                            let (response, meta) = (told.response, told.frame);
                             let shell = handle.state::<Shell>();
                             let summary = match &response {
                                 Response::Ok { reading, plan } => format!("ok n={} buffer={} picks={} uploaded={:?}", reading.n, reading.buffer, plan.route.steps.len(), plan.route.uploaded),
@@ -884,6 +930,11 @@ pub fn run() {
                             };
                             let own = breach_capture::version::of_process(std::process::id())
                                 .map_or("none".to_string(), |v| v.label());
+                            let check = match &response {
+                                Response::Ok { reading, .. } => rule_check(reading, &PlanOptions::default())
+                                    .map_or("none".to_string(), |c| format!("{} picks, {} outcomes", c.route.steps.len(), c.outcomes.len())),
+                                Response::Rejected { .. } => "no reading".to_string(),
+                            };
                             let report = match report::write(&handle, "selftest") {
                                 Ok((_, files)) => files.join(" "),
                                 Err(e) => format!("FAILED ({e})"),
@@ -897,7 +948,7 @@ pub fn run() {
                                 "not tried".to_string()
                             };
                             format!(
-                                "selftest: {summary} | frame {}x{} | {:.1} ms | hotkey: {} | windows: main={} overlay={} | capture permission: {:?} | frame url: {} | update: {update} | version the system reports for this program: {own} | report: {report} | start at sign-in: {autostart}",
+                                "selftest: {summary} | frame {}x{} | {:.1} ms | hotkey: {} | windows: main={} overlay={} | capture permission: {:?} | frame url: {} | update: {update} | version the system reports for this program: {own} | report: {report} | start at sign-in: {autostart} | rule check: {check}",
                                 meta.width,
                                 meta.height,
                                 started.elapsed().as_secs_f32() * 1e3,
@@ -934,7 +985,7 @@ pub fn run() {
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![status, capture, allow_capture, set_priority, set_matcher, set_overlay, dismiss_overlay, set_updates, set_tray, set_autostart, report::save_report, watch_folder, pause_hotkey, set_hotkey, last_frame_url,
+        .invoke_handler(tauri::generate_handler![status, capture, allow_capture, set_priority, set_matcher, set_checking, set_overlay, dismiss_overlay, set_updates, set_tray, set_autostart, report::save_report, watch_folder, pause_hotkey, set_hotkey, last_frame_url,
             update::check_update,
             update::install_update,
             update::open_downloads])
