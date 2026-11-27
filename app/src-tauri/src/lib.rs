@@ -1,6 +1,7 @@
 //! Desktop shell: a global hotkey that captures and reads the game, an overlay window over it, and a watched screenshot folder.
 
 mod hotkey;
+mod update;
 
 use base64::Engine;
 use breach_capture::{CaptureError, Permission, Target};
@@ -38,6 +39,8 @@ struct Settings {
     last_buffer: Option<usize>,
     /// The capture hotkey the player chose. `None` = the first default that is free.
     hotkey: Option<String>,
+    /// Ask the release page for a newer version at start.
+    updates: bool,
 }
 
 impl Default for Settings {
@@ -51,6 +54,7 @@ impl Default for Settings {
             matcher: None,
             last_buffer: None,
             hotkey: None,
+            updates: true,
         }
     }
 }
@@ -106,6 +110,7 @@ struct ShellStatus {
     capture_note: String,
     watch_dir: Option<String>,
     overlay: bool,
+    updates: bool,
     log_path: String,
 }
 
@@ -153,6 +158,7 @@ fn status_of(shell: &Shell) -> ShellStatus {
         capture_note,
         watch_dir: settings.watch_dir.map(|p| p.display().to_string()),
         overlay: settings.overlay,
+        updates: settings.updates,
         log_path: shell.log_path.display().to_string(),
     }
 }
@@ -450,6 +456,13 @@ fn set_overlay(app: AppHandle, shell: State<Shell>, enabled: bool) -> ShellStatu
 }
 
 #[tauri::command]
+fn set_updates(shell: State<Shell>, enabled: bool) -> ShellStatus {
+    shell.settings.lock().unwrap().updates = enabled;
+    save(&shell);
+    status_of(&shell)
+}
+
+#[tauri::command]
 fn watch_folder(
     app: AppHandle,
     shell: State<Shell>,
@@ -573,6 +586,9 @@ pub fn run() {
     }
     builder
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(update::Pending::default())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, _shortcut, event| {
@@ -624,7 +640,7 @@ pub fn run() {
                     &shell,
                     &format!(
                         "started Breacher {} on {} {}; hotkey {}; refused {:?}; capture permission {:?}",
-                        env!("CARGO_PKG_VERSION"),
+                        app.package_info().version,
                         std::env::consts::OS,
                         std::env::consts::ARCH,
                         binding.active.as_ref().map(hotkey::label).unwrap_or_else(|| "none".into()),
@@ -656,8 +672,13 @@ pub fn run() {
                                 Response::Ok { reading, plan } => format!("ok n={} buffer={} picks={} uploaded={:?}", reading.n, reading.buffer, plan.route.steps.len(), plan.route.uploaded),
                                 Response::Rejected { stage, .. } => format!("rejected at {stage:?}"),
                             };
+                            let update = match tauri::async_runtime::block_on(update::find(&handle)) {
+                                Ok(Some(found)) => format!("{} available", found.version),
+                                Ok(None) => "up to date".to_string(),
+                                Err(e) => format!("nothing found ({e})"),
+                            };
                             format!(
-                                "selftest: {summary} | frame {}x{} | {:.1} ms | hotkey: {} | windows: main={} overlay={} | capture permission: {:?} | frame url: {}",
+                                "selftest: {summary} | frame {}x{} | {:.1} ms | hotkey: {} | windows: main={} overlay={} | capture permission: {:?} | frame url: {} | update: {update}",
                                 meta.width,
                                 meta.height,
                                 started.elapsed().as_secs_f32() * 1e3,
@@ -670,6 +691,14 @@ pub fn run() {
                         }
                     };
                     println!("{line}");
+                    // BREACHER_SELFTEST_INSTALL: a development build goes on to install the update its test manifest offers
+                    #[cfg(debug_assertions)]
+                    if std::env::var_os("BREACHER_SELFTEST_INSTALL").is_some()
+                        && tauri::async_runtime::block_on(update::check_update(handle.clone())).is_some()
+                    {
+                        let outcome = tauri::async_runtime::block_on(update::install_update(handle.clone()));
+                        println!("selftest: the update did not install: {outcome:?}");
+                    }
                     // closing the main window has to end the process, as it does for the player
                     match handle.get_webview_window("main") {
                         Some(main) => drop(main.close()),
@@ -679,7 +708,10 @@ pub fn run() {
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![status, capture, allow_capture, set_priority, set_matcher, set_overlay, watch_folder, pause_hotkey, set_hotkey, last_frame_url])
+        .invoke_handler(tauri::generate_handler![status, capture, allow_capture, set_priority, set_matcher, set_overlay, set_updates, watch_folder, pause_hotkey, set_hotkey, last_frame_url,
+            update::check_update,
+            update::install_update,
+            update::open_downloads])
         .run(tauri::generate_context!())
         .expect("error while running Breacher");
 }

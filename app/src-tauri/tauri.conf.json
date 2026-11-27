@@ -54,6 +54,16 @@
     ],
     "macOS": {
       "infoPlist": "Info.plist"
+    },
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEU5QjBGMUQzQkQ5NzdEODkKUldTSmZaZTkwL0d3NlN5ZWl5UFF3bGRUQ3RSTmtwdFdpbGRRWmV1M2hxZ1MzQlNrVEVBc3laR3EK",
+      "endpoints": [
+        "https://github.com/leecois/breacher/releases/latest/download/latest.json"
+      ],
+      "requireSignedVersion": true
     }
   }
 }
