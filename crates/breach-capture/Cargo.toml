@@ -1,0 +1,18 @@
+[package]
+name = "breach-capture"
+description = "Screen capture for the breach reader: finds the game window, checks permission, grabs one frame"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+xcap = { version = "0.9", features = ["wgc"] }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

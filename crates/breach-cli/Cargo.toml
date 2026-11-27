@@ -1,0 +1,21 @@
+[package]
+name = "breach-cli"
+description = "Command line front end for breach-core: read screenshots, solve, evaluate, benchmark"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "breach"
+path = "src/main.rs"
+
+[dependencies]
+breach-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+image = { workspace = true }
+
+[lints]
+workspace = true

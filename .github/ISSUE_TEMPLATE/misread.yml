@@ -1,0 +1,42 @@
+name: A screen was read wrong or refused
+description: Breacher showed the wrong codes, the wrong route, or would not read a breach screen
+labels: [reader]
+body:
+  - type: markdown
+    attributes:
+      value: A screenshot is what makes this fixable. Take it before the first pick, with the cursor off the matrix, and attach the original file.
+  - type: textarea
+    id: screenshot
+    attributes:
+      label: Screenshot
+      description: Drag the original PNG here.
+    validations:
+      required: true
+  - type: textarea
+    id: shown
+    attributes:
+      label: What Breacher showed
+      description: The message it gave, or which codes or picks were wrong.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Breacher version
+    validations:
+      required: true
+  - type: input
+    id: game
+    attributes:
+      label: Game version and language
+  - type: input
+    id: display
+    attributes:
+      label: Resolution, display mode and HDR
+      placeholder: 2560x1440, windowed borderless, HDR off
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: The last lines of breacher.log from the app's data folder, if you used the desktop app.
+      render: text

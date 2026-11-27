@@ -1,0 +1,37 @@
+[workspace]
+resolver = "2"
+members = ["crates/*", "app/src-tauri"]
+
+[workspace.package]
+version = "0.2.0"
+edition = "2021"
+rust-version = "1.90"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[workspace.dependencies]
+breach-core = { path = "crates/breach-core" }
+breach-capture = { path = "crates/breach-capture" }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "warn"
+
+[workspace.lints.clippy]
+dbg_macro = "warn"
+todo = "warn"
+
+[profile.release]
+opt-level = 3
+# thin LTO is within a few percent of fat on the reader's hot loops and links the desktop shell far faster
+lto = "thin"
+debug = false
+
+# keep debug builds usable for the vision code (tight pixel loops)
+[profile.dev.package.breach-core]
+opt-level = 2
+
+[profile.test.package.breach-core]
+opt-level = 2

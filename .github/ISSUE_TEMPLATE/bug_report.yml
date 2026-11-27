@@ -1,0 +1,28 @@
+name: Something else does not work
+description: Capture, the overlay, the watched folder, the page or the command line
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Breacher version
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: Operating system and display setup
+      placeholder: Windows 11, one 3440x1440 display at 100% scaling
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: The last lines of breacher.log from the app's data folder.
+      render: text

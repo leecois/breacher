@@ -1,0 +1,67 @@
+name: release
+
+# builds the installer and attaches it, with the command-line tool, to a draft release
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag to build and attach the files to
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      # no release unless the reader reads the whole corpus exactly on this machine too
+      - name: Reader and solver tests
+        run: cargo test --release -p breach-core
+
+      - name: Command-line tool
+        run: cargo build --release -p breach-cli
+
+      - name: Corpus through the command-line tool
+        run: cargo run --release -p breach-cli -- eval corpus/cpah
+
+      - name: Installer
+        working-directory: app
+        run: |
+          npm ci
+          npm run tauri build -- --bundles nsis
+
+      - name: Collect files
+        shell: bash
+        run: |
+          mkdir out
+          cp target/release/bundle/nsis/*-setup.exe out/
+          cp target/release/breach.exe out/breach-cli.exe
+          ls -la out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: breacher-windows
+          path: out/
+
+      - name: Attach to a draft release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --draft --prerelease --verify-tag --title "Breacher $TAG" --notes-file docs/RELEASE-NOTES.md
+          gh release upload "$TAG" out/* --clobber

@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>Breacher</title>
+  </head>
+  <body>
+    <header class="bar">
+      <h1 class="brand">Breacher<span class="brand-mk">MK.2</span></h1>
+      <p class="bar-what">Reads a Breach Protocol screen and marks the route</p>
+      <div class="bar-actions">
+        <button id="capture" class="btn primary" hidden>Capture game</button>
+        <button id="open" class="btn">Open screenshot</button>
+        <input id="file" type="file" accept="image/*" hidden />
+      </div>
+    </header>
+
+    <section class="shell" id="shell" hidden aria-label="Capture settings">
+      <p id="shell-note" class="shell-note" hidden></p>
+      <button id="allow" class="btn small" hidden>Allow screen capture</button>
+      <label class="check"><input type="checkbox" id="overlay-on" /><span class="box" aria-hidden="true"></span>Draw the route over the game</label>
+      <p id="watch-note" class="watch-note"></p>
+      <button id="watch" class="btn small">Watch a screenshot folder</button>
+    </section>
+
+    <main id="stage" data-state="empty">
+      <section class="empty" aria-labelledby="empty-title">
+        <div class="empty-copy">
+          <p class="tag">Awaiting input</p>
+          <h2 id="empty-title">Show it the breach screen</h2>
+          <ul class="ways">
+            <li id="way-capture" hidden>Open a breach in the game and press <kbd id="hotkey">Ctrl Shift B</kbd>.</li>
+            <li id="way-watch" hidden>Take a screenshot in the game; Breacher reads new files in the watched folder.</li>
+            <li>Drop a screenshot anywhere in this window.</li>
+            <li>Paste one with <kbd>Ctrl V</kbd>.</li>
+          </ul>
+          <p class="when">Capture before the first pick: the whole matrix has to be on screen.</p>
+          <div class="samples" id="samples" hidden>
+            <p>No game at hand? Try a real capture:</p>
+          </div>
+        </div>
+        <svg id="ghost" class="ghost" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"></svg>
+      </section>
+
+      <section class="rejected" aria-live="polite">
+        <p class="tag danger">Screen not read</p>
+        <h2 id="reject-hint"></h2>
+        <details class="detail">
+          <summary>What the reader saw</summary>
+          <p id="reject-detail"></p>
+        </details>
+        <img id="reject-image" alt="The frame that was read" hidden />
+      </section>
+
+      <section class="result">
+        <div class="main-col">
+          <section class="panel matrix-panel" aria-labelledby="matrix-title">
+            <header class="panel-head">
+              <h3 id="matrix-title" class="panel-title">Code matrix</h3>
+              <span class="readout" id="matrix-size"></span>
+              <div class="view-switch" role="tablist" aria-label="View">
+                <button role="tab" id="tab-sheet" aria-selected="true">Plan</button>
+                <button role="tab" id="tab-screen" aria-selected="false">On the screen</button>
+              </div>
+            </header>
+            <div class="sheet" id="sheet-wrap">
+              <svg id="sheet" xmlns="http://www.w3.org/2000/svg"></svg>
+            </div>
+            <div class="screen" id="screen-wrap" hidden>
+              <img id="screen-image" alt="" />
+              <svg id="screen-overlay" class="overlay-svg" xmlns="http://www.w3.org/2000/svg"></svg>
+            </div>
+          </section>
+
+          <section class="panel route-panel" aria-labelledby="route-title">
+            <header class="panel-head">
+              <h3 id="route-title" class="panel-title">Buffer</h3>
+              <span class="readout" id="route-count"></span>
+            </header>
+            <ol class="picks" id="picks" aria-label="Pick order"></ol>
+          </section>
+        </div>
+
+        <aside class="side">
+          <section class="panel" aria-labelledby="daemons-title">
+            <header class="panel-head">
+              <h3 id="daemons-title" class="panel-title">Daemons</h3>
+              <span class="readout" id="daemon-count"></span>
+            </header>
+            <ul class="daemons" id="daemons"></ul>
+          </section>
+
+          <section class="panel" aria-labelledby="settings-title">
+            <header class="panel-head">
+              <h3 id="settings-title" class="panel-title">Plan</h3>
+            </header>
+            <div class="panel-body">
+              <div class="setting">
+                <h4 id="buffer-label">Buffer size</h4>
+                <div class="setting-row">
+                  <div class="stepper" role="group" aria-labelledby="buffer-label">
+                    <button id="buffer-down" aria-label="One slot fewer">&minus;</button>
+                    <output id="buffer-value">0</output>
+                    <button id="buffer-up" aria-label="One slot more">+</button>
+                  </div>
+                  <p class="note" id="buffer-note"></p>
+                </div>
+              </div>
+              <div class="setting">
+                <h4 id="priority-label">When they do not all fit</h4>
+                <div class="choice" role="radiogroup" aria-labelledby="priority-label">
+                  <label class="check radio"><input type="radio" name="priority" value="count" checked /><span class="box" aria-hidden="true"></span>Upload as many as possible</label>
+                  <label class="check radio"><input type="radio" name="priority" value="tier" /><span class="box" aria-hidden="true"></span>Go for the last one first</label>
+                </div>
+              </div>
+              <div class="setting">
+                <h4 id="matcher-label">What a wrong pick does</h4>
+                <select id="matcher" aria-labelledby="matcher-label">
+                  <option value="">Not confirmed yet: plan for every rule</option>
+                  <option value="substring">Nothing: overlapping codes still count</option>
+                  <option value="retest">Resets the sequence, then starts it again</option>
+                  <option value="strict">Resets the sequence and is lost</option>
+                </select>
+                <div class="rule" id="rule"></div>
+              </div>
+            </div>
+          </section>
+        </aside>
+      </section>
+    </main>
+
+    <footer class="statusbar" id="title-block" aria-label="Frame details"></footer>
+
+    <div class="drop-veil" id="drop-veil" aria-hidden="true"><p>Drop the screenshot</p></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

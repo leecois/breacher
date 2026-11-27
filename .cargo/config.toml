@@ -1,0 +1,3 @@
+# the browser build uses WebAssembly SIMD, so the reader's min/max filters vectorise as they do natively
+[target.wasm32-unknown-unknown]
+rustflags = ["-C", "target-feature=+simd128"]

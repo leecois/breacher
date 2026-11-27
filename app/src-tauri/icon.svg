@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- black glass with two cut corners, a signal-yellow edge, the route in magenta -->
+  <path d="M40 40H824L984 200V984H200L40 824Z" fill="#fcee0a"/>
+  <path d="M84 84H806L940 218V940H218L84 806Z" fill="#07080c"/>
+  <g fill="#3d4a56">
+    <rect x="258" y="258" width="44" height="44"/><rect x="490" y="258" width="44" height="44"/><rect x="722" y="258" width="44" height="44"/>
+    <rect x="258" y="490" width="44" height="44"/><rect x="722" y="490" width="44" height="44"/>
+    <rect x="258" y="722" width="44" height="44"/><rect x="490" y="722" width="44" height="44"/><rect x="722" y="722" width="44" height="44"/>
+  </g>
+  <path d="M280 280H744V512H512V744" fill="none" stroke="#ff2e97" stroke-opacity=".6" stroke-width="150" stroke-linecap="square" stroke-linejoin="miter"/>
+  <path d="M192 192H332L368 228V368H228L192 332Z" fill="#ff2e97"/>
+  <path d="M266 238h30v92M254 330h56" fill="none" stroke="#05070a" stroke-width="22" stroke-linecap="square"/>
+  <path d="M478 690l34 54 34-54" fill="none" stroke="#fff" stroke-width="22" stroke-linecap="square"/>
+</svg>

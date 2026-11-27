@@ -1,0 +1,82 @@
+name: ci
+
+# the desktop builds are slow, so they run only on request
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Formatting
+        run: cargo fmt --all -- --check
+      - name: Lints on the portable crates
+        run: cargo clippy -p breach-core -p breach-cli -p breach-wasm --all-targets -- -D warnings
+
+  core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Reader, solver and corpus regression
+        run: cargo test --release -p breach-core
+      - name: Command line
+        run: cargo build --release -p breach-cli
+      - name: Corpus with built-in templates
+        run: cargo run --release -p breach-cli -- eval corpus/cpah
+
+  page:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: Page with the WebAssembly reader
+        working-directory: app
+        run: |
+          npm ci
+          npm run build
+
+  desktop:
+    if: github.event_name == 'workflow_dispatch'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: Reader and solver
+        run: cargo test --release -p breach-core
+      - name: Capture crate
+        run: cargo test -p breach-capture
+      - name: Desktop app
+        working-directory: app
+        run: |
+          npm ci
+          npm run tauri build -- --no-bundle

@@ -1,0 +1,19 @@
+[package]
+name = "breach-wasm"
+description = "breach-core compiled to WebAssembly behind a plain C ABI (no wasm-bindgen needed)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+breach-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

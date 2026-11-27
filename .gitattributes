@@ -1,0 +1,9 @@
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.ico binary
+*.icns binary
+*.wasm binary
+Cargo.lock linguist-generated
+app/package-lock.json linguist-generated
+crates/breach-core/src/templates_data.rs linguist-generated

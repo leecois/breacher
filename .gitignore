@@ -1,0 +1,8 @@
+target/
+node_modules/
+dist/
+.DS_Store
+*.log
+/out/
+app/public/breach_wasm.wasm
+app/src-tauri/gen/
