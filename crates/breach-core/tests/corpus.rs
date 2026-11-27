@@ -3,7 +3,7 @@ use breach_core::api::breach_on_screen;
 use breach_core::glyph::Templates;
 use breach_core::image::{Frame, PixelFormat};
 use breach_core::plan::{plan, PlanOptions};
-use breach_core::progress::{advance, look, Mark};
+use breach_core::progress::{advance, look, Fate, Mark};
 use breach_core::reader::Geometry;
 use breach_core::reader::{read, ReadOptions, Reading, Stage};
 use breach_core::solver::{self, Matcher};
@@ -213,6 +213,48 @@ fn an_untouched_screen_shows_no_pick() {
         let seen = looked(&img, &reading);
         assert_eq!(seen.committed, 0, "{name}");
         assert!(seen.cells.iter().all(|m| *m == Mark::Code), "{name}: {:?}", seen.cells);
+        assert!(seen.fates.iter().all(|f| *f == Fate::Pending), "{name}: {:?}", seen.fates);
+        assert_eq!(seen.fates.len(), reading.sequences.len(), "{name}");
+        assert!(seen.matrix_shown(reading.buffer) && !seen.over(), "{name}");
+    }
+}
+
+/// The game lays a green bar over a daemon it has installed and a red one over a daemon that has failed.
+#[test]
+fn the_bars_over_settled_daemons_are_read() {
+    const GREEN: image::Rgb<u8> = image::Rgb([30, 215, 120]);
+    const RED: image::Rgb<u8> = image::Rgb([240, 70, 75]);
+    for (name, img, label) in corpus() {
+        if label.negative {
+            continue;
+        }
+        let reading = run(&img).unwrap();
+        let g = &reading.geometry;
+        let mut settled = img.clone();
+        let mut want = Vec::new();
+        for (i, &row) in g.seq_rows.iter().enumerate() {
+            let colour = [None, Some(GREEN), Some(RED)][i % 3];
+            want.push([Fate::Pending, Fate::Installed, Fate::Failed][i % 3]);
+            if let Some(colour) = colour {
+                let width = 9.0 * g.seq_pitch_x;
+                fill(
+                    &mut settled,
+                    g.seq_x0 + width / 2.0 - g.seq_pitch_x,
+                    row,
+                    width / 2.0,
+                    g.py * 0.4,
+                    colour,
+                );
+            }
+        }
+        let seen = looked(&settled, &reading);
+        assert_eq!(seen.fates, want, "{name}");
+        assert_eq!(seen.over(), !want.contains(&Fate::Pending), "{name}");
+        // with the matrix replaced by the screen that follows a breach, nothing of it is taken for picks
+        let (cx, cy) = g.cell_center(g.n / 2, g.n / 2);
+        let half = g.n as f32 / 2.0;
+        fill(&mut settled, cx, cy, half * g.px, half * g.py, image::Rgb([8, 10, 18]));
+        assert!(!looked(&settled, &reading).matrix_shown(reading.buffer), "{name}");
     }
 }
 

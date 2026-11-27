@@ -16,6 +16,17 @@ pub enum Mark {
     Used,
 }
 
+/// What has become of a daemon.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Fate {
+    /// Its sequence is still shown: it can still be uploaded.
+    Pending,
+    /// The game has put its green bar over it.
+    Installed,
+    /// The game has put its red bar over it.
+    Failed,
+}
+
 /// What one look shows of the picks made so far.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Look {
@@ -23,6 +34,20 @@ pub struct Look {
     pub cells: Vec<Mark>,
     /// Buffer slots filled for good; the preview of a code under the pointer does not count.
     pub committed: usize,
+    /// One fate per daemon, in the order of the sequence list.
+    pub fates: Vec<Fate>,
+}
+
+impl Look {
+    /// Whether the matrix is still there: a breach leaves at most one pick per buffer slot, and the pointer covers one cell more.
+    pub fn matrix_shown(&self, buffer: usize) -> bool {
+        self.cells.iter().filter(|m| **m != Mark::Code).count() <= buffer + 2
+    }
+
+    /// Whether the game has settled every daemon, which ends the breach.
+    pub fn over(&self) -> bool {
+        !self.fates.is_empty() && self.fates.iter().all(|f| *f != Fate::Pending)
+    }
 }
 
 /// Half the brightness of the brightest code: what counts as lit on this screen.
@@ -64,7 +89,37 @@ fn tints(frame: &Frame, cx: f32, cy: f32, half: f32, lit: u32) -> (f32, f32) {
     (yellow as f32 / all.max(1) as f32, cyan as f32 / all.max(1) as f32)
 }
 
-/// Reads the marks of every cell and the fill of the buffer from a frame of the same screen.
+/// The bar the game lays over a daemon's row once it is settled, told by its colour.
+fn fate(frame: &Frame, g: &Geometry, row: f32, lit: u32) -> Fate {
+    let (x0, x1) = (
+        (g.seq_x0 - 0.5 * g.seq_pitch_x).max(0.0) as usize,
+        ((g.seq_x0 + 5.5 * g.seq_pitch_x) as usize).min(frame.width - 1),
+    );
+    let (y0, y1) = (
+        (row - 0.25 * g.py).max(0.0) as usize,
+        ((row + 0.25 * g.py) as usize).min(frame.height - 1),
+    );
+    let (mut all, mut green, mut red) = (0u32, 0u32, 0u32);
+    for y in y0..=y1 {
+        for x in x0..=x1 {
+            let [r, g, b] = frame.rgb(x, y).map(u32::from);
+            all += 1;
+            if r.max(g).max(b) > lit {
+                green += (2 * g > 3 * r && 5 * g > 6 * b) as u32;
+                red += (2 * r > 3 * g && 2 * r > 3 * b) as u32;
+            }
+        }
+    }
+    if 5 * green >= 3 * all {
+        Fate::Installed
+    } else if 5 * red >= 3 * all {
+        Fate::Failed
+    } else {
+        Fate::Pending
+    }
+}
+
+/// Reads the marks of every cell, the fill of the buffer and the fate of every daemon from a frame of the same screen.
 pub fn look(frame: &Frame, g: &Geometry, buffer: usize) -> Look {
     let lit = lit(frame, g);
     let cells = (0..g.n * g.n)
@@ -90,7 +145,8 @@ pub fn look(frame: &Frame, g: &Geometry, buffer: usize) -> Look {
             cyan >= 0.6 || (yellow >= 0.15 && cyan < 0.1)
         })
         .count();
-    Look { cells, committed }
+    let fates = g.seq_rows.iter().map(|&row| fate(frame, g, row, lit)).collect();
+    Look { cells, committed, fates }
 }
 
 fn follows(n: usize, picks: &[usize], next: usize) -> bool {
@@ -158,7 +214,7 @@ mod tests {
         for &(row, col, mark) in marks {
             cells[row * n + col] = mark;
         }
-        Look { cells, committed }
+        Look { cells, committed, fates: Vec::new() }
     }
 
     #[test]
@@ -192,6 +248,19 @@ mod tests {
         // with the buffer saying one pick, the same pointer is only hovering
         let hovering = seen(n, &[(0, 5, Used), (1, 5, Hover)], 1);
         assert_eq!(advance(n, &[5], &hovering), Some(vec![5]));
+    }
+
+    #[test]
+    fn a_matrix_that_is_gone_and_a_breach_that_is_over_are_told() {
+        let n = 6;
+        let mut playing = seen(n, &[(0, 5, Used), (1, 5, Used), (1, 0, Hover)], 2);
+        assert!(playing.matrix_shown(8) && !playing.over());
+        playing.fates = vec![Fate::Installed, Fate::Pending];
+        assert!(!playing.over());
+        playing.fates = vec![Fate::Installed, Fate::Failed];
+        assert!(playing.over());
+        let gone = Look { cells: vec![Used; n * n], committed: 0, fates: Vec::new() };
+        assert!(!gone.matrix_shown(8));
     }
 
     #[test]
