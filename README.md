@@ -40,6 +40,10 @@ There are three ways to give Breacher a screen:
 
 Capture before the first pick. A breach that has already started is rejected, not guessed at.
 
+Closing the window keeps Breacher in the tray, so the hotkey goes on working while you play. Click
+the tray icon to bring the window back, or choose Quit in its menu. "Stay in the tray when closed"
+turns this off.
+
 The bottom of the window shows which Breacher is running and, after a capture of the game, which
 version of the game it looked at. Both belong in a bug report.
 

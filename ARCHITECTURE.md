@@ -166,7 +166,9 @@ whether more daemons or the last daemon comes first (`Priority`).
   looks in a row, or the game is minimised. Where a repeated capture would flash a border round
   the game, as on Windows 10, the route stays up for a fixed time. A watched folder reads new screenshots as they appear and needs no
   capture permission. The shell writes a settings file and a plain-text log beside it. It runs as
-  a single instance and ends when the main window closes, which also releases the hotkey. When the
+  a single instance. Closing the main window puts it away and leaves the program in the tray, hotkey
+  and all; the tray menu ends it. Where there is no tray, or the player turns that off, closing the
+  window ends the program, which also releases the hotkey. When the
   system refuses the wanted combination, the next free default is bound and the window says so.
   At start it reads `latest.json` from the latest full release; a newer version is installed only
   on the player's say and only if its signature, which names the version, verifies.
