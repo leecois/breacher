@@ -1,3 +1,8 @@
+## New in 0.2.1
+
+Breacher is now licensed under MIT or Apache-2.0, at your option. The code was reorganised
+internally; reading, solving and capture behave as in 0.2.0.
+
 ## New in 0.2.0
 
 The interface has been redrawn to sit beside the game without imitating it: black glass, signal

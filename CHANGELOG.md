@@ -6,9 +6,16 @@ Notable changes for people who use Breacher. The format follows
 
 ## Unreleased
 
+## 0.2.1 - 2026-11-27
+
 ### Added
 
 - The project is licensed under MIT or Apache-2.0, at your option.
+
+### Changed
+
+- The reader and the page were reorganised internally. Reading, solving and capture behave as in
+  0.2.0.
 
 ## 0.2.0 - 2026-11-27
 
