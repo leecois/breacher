@@ -20,6 +20,12 @@ anyway). Set the game to Windowed Borderless, open a breach and
 press `Ctrl Shift B` before the first pick. The window shows the hotkey in use and lets you change
 it. The app keeps a log at `%APPDATA%\dev.breacher.mk2\breacher.log`.
 
+## Updates
+
+An installed copy looks for a newer release when it starts and installs it when you say so; the
+update is checked against the project's signature first. The portable copy only tells you and opens
+the download page. "Look for updates at start" in the window turns the check off.
+
 ## Use
 
 There are three ways to give Breacher a screen:

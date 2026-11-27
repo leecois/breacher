@@ -8,7 +8,10 @@ Notable changes for people who use Breacher. The format follows
 
 ### Added
 
-- A portable build for Windows that runs without installing, next to the installer.
+- An installed copy looks for a newer release when it starts and installs it on request, after
+  checking its signature. "Look for updates at start" turns the check off.
+- A portable build for Windows that runs without installing, next to the installer. It reports a
+  newer release and opens the download page.
 
 ## 0.2.2 - 2026-11-27
 

@@ -3,9 +3,14 @@
 ## What the app can do
 
 Breacher captures the screen only when you press its hotkey or its capture button, and reads image
-files only from a folder you choose to watch or that you drop or paste in. It opens no network
-connection. It writes two files, its settings and a plain-text log, in its own application data
-folder.
+files only from a folder you choose to watch or that you drop or paste in. It writes two files, its
+settings and a plain-text log, in its own application data folder.
+
+The desktop app makes one kind of network request: at start it fetches a small file from the
+project's release page to learn whether a newer version exists. The request carries nothing about
+you, your screen or the game, and "Look for updates at start" turns it off. An update is downloaded
+only when you ask for it, and it is installed only if it carries the project's signature for that
+version. The command-line tool makes no network requests.
 
 ## Supported versions
 

@@ -43,6 +43,23 @@ cargo run --release -p breach-cli -- eval corpus/cpah --loo --full
 The reader must never return a wrong reading. A change that turns a refusal into a wrong answer is
 not an improvement, whatever it does to the other numbers.
 
+## Releasing
+
+1. Set the version in `Cargo.toml`, `app/package.json` and `app/src-tauri/tauri.conf.json`, and
+   update `CHANGELOG.md` and `docs/RELEASE-NOTES.md`.
+2. A `v*` tag builds the installer, the portable program and `latest.json`, and attaches them to a
+   draft release.
+3. Publishing the draft as a full release offers it to installed copies, which read `latest.json`
+   from the latest full release. A pre-release is on the page but is not offered as an update.
+
+The installer is signed with the key in the `TAURI_SIGNING_PRIVATE_KEY` secret; its public half is
+in `tauri.conf.json`. Installed copies refuse an update signed with any other key, so the key must
+not be replaced.
+
+A development build reads its update manifest from `BREACHER_UPDATE_URL`, and with
+`BREACHER_SELFTEST_INSTALL` set its self-test installs what that manifest offers. Together they
+exercise a whole update against a local file server.
+
 ## Conventions
 
 - **Commits** have a one-line [Conventional Commits](https://www.conventionalcommits.org) subject,
