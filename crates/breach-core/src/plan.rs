@@ -52,16 +52,19 @@ pub struct Step {
     pub uploads: Vec<usize>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Route {
     pub steps: Vec<Step>,
     /// Daemons uploaded, by original index.
     pub uploaded: Vec<usize>,
     /// Wanted daemons the route does not reach.
     pub missed: Vec<usize>,
+    /// How many of the first steps were already played when the route was planned.
+    #[serde(default)]
+    pub done: usize,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Plan {
     pub buffer: usize,
     pub route: Route,
@@ -110,10 +113,19 @@ fn route(
     let uploaded: Vec<usize> =
         (0..map.len()).filter(|&d| sol.uploaded >> d & 1 == 1).map(|d| map[d]).collect();
     let missed = map.iter().copied().filter(|d| !uploaded.contains(d)).collect();
-    Route { steps, uploaded, missed }
+    Route { steps, uploaded, missed, done: 0 }
 }
 
 pub fn plan(reading: &Reading, opt: &PlanOptions) -> Plan {
+    plan_from(reading, opt, &[]).unwrap_or_default()
+}
+
+/// Plans the rest of a breach that is under way: `played` are the picks made so far as (row, column), in order.
+pub fn plan_from(
+    reading: &Reading,
+    opt: &PlanOptions,
+    played: &[(usize, usize)],
+) -> Result<Plan, String> {
     let t = Stopwatch::start();
     let buffer = opt.buffer.unwrap_or(reading.buffer).min(solver::MAX_BUFFER);
     let total = reading.sequences.len();
@@ -132,29 +144,46 @@ pub fn plan(reading: &Reading, opt: &PlanOptions) -> Plan {
             .collect(),
         buffer,
     };
-    let so =
-        |matcher| solver::SolveOptions { matcher, node_budget: opt.node_budget, dp_bound: true };
+    let n = reading.n;
+    let start: Vec<u16> = played
+        .iter()
+        .map(|&(row, col)| (row < n && col < n).then_some((row * n + col) as u16))
+        .collect::<Option<_>>()
+        .ok_or("a pick lies outside the matrix")?;
+    let solve = |matcher| {
+        let so = solver::SolveOptions { matcher, node_budget: opt.node_budget, dp_bound: true };
+        match solver::solve_from(&puzzle, &so, &start) {
+            // a puzzle the solver does not take has no route, which is not an error for a fresh screen
+            Err(_) if start.is_empty() => Ok(Solution { proven: true, ..Solution::default() }),
+            other => other,
+        }
+    };
     let (main, main_matcher, optimistic, proven) = match opt.matcher {
         Some(m) => {
-            let s = solver::solve_with(&puzzle, &so(m));
+            let s = solve(m)?;
             let proven = s.proven;
             (s, m, None, proven)
         }
         None => {
-            let safe = solver::solve_with(&puzzle, &so(Matcher::Unanimous));
-            let best = solver::solve_with(&puzzle, &so(Matcher::Substring));
+            let safe = solve(Matcher::Unanimous)?;
+            let best = solve(Matcher::Substring)?;
             let proven = safe.proven && best.proven;
             let alt = (best.reward > safe.reward).then_some(best);
             (safe, Matcher::Unanimous, alt, proven)
         }
     };
-    Plan {
+    let resumed = |mut r: Route| {
+        r.done = start.len();
+        r
+    };
+    Ok(Plan {
         buffer,
-        route: route(reading, &puzzle, &map, &main, main_matcher),
-        optimistic: optimistic.map(|s| route(reading, &puzzle, &map, &s, Matcher::Substring)),
+        route: resumed(route(reading, &puzzle, &map, &main, main_matcher)),
+        optimistic: optimistic
+            .map(|s| resumed(route(reading, &puzzle, &map, &s, Matcher::Substring))),
         proven,
         solve_us: t.us(),
-    }
+    })
 }
 
 #[cfg(test)]
@@ -182,6 +211,29 @@ mod tests {
             quality: Quality::default(),
             timings: Timings::default(),
         }
+    }
+
+    #[test]
+    fn a_breach_under_way_is_planned_from_where_it_stands() {
+        // 3x3 with A B in the first column and C A B to be had after a wrong first pick
+        let r = reading(3, vec![0, 2, 2, 1, 0, 2, 2, 1, 2], vec![vec![0, 1]], 4);
+        let fresh = plan(&r, &PlanOptions::default());
+        assert_eq!((fresh.route.steps.len(), fresh.route.done), (2, 0));
+        // the player took the top middle cell instead: the daemon is still reachable down that column
+        let rescued = plan_from(&r, &PlanOptions::default(), &[(0, 1)]).unwrap();
+        let cells: Vec<(usize, usize)> =
+            rescued.route.steps.iter().map(|s| (s.row, s.col)).collect();
+        assert_eq!(cells, vec![(0, 1), (1, 1), (1, 0)]);
+        assert_eq!((rescued.route.done, rescued.route.uploaded.clone()), (1, vec![0]));
+        // on the planned route nothing changes but the count of steps behind
+        let on_route = plan_from(&r, &PlanOptions::default(), &[(0, 0)]).unwrap();
+        assert_eq!(on_route.route.steps, fresh.route.steps);
+        assert_eq!(on_route.route.done, 1);
+        assert!(
+            plan_from(&r, &PlanOptions::default(), &[(1, 1)]).is_err(),
+            "not a legal first pick"
+        );
+        assert!(plan_from(&r, &PlanOptions::default(), &[(0, 7)]).is_err(), "outside the matrix");
     }
 
     #[test]

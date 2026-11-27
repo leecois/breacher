@@ -434,9 +434,50 @@ impl<'a> Search<'a> {
 }
 
 pub fn solve_with(p: &Puzzle, opt: &SolveOptions) -> Solution {
-    if p.validate().is_err() || p.rows > 16 || p.cols > 16 {
-        return Solution { proven: true, ..Solution::default() };
+    solve_from(p, opt, &[]).unwrap_or(Solution { proven: true, ..Solution::default() })
+}
+
+/// Checks that picks follow the rules of the board: in range, no cell twice, top row first, then column and row in turn.
+fn legal(p: &Puzzle, path: &[u16]) -> Result<(), String> {
+    if path.len() > p.buffer {
+        return Err(format!("route has {} picks, buffer holds {}", path.len(), p.buffer));
     }
+    let mut seen = vec![false; p.rows * p.cols];
+    for (i, &c) in path.iter().enumerate() {
+        let c = c as usize;
+        if c >= p.rows * p.cols {
+            return Err(format!("pick {} is outside the matrix", i + 1));
+        }
+        if std::mem::replace(&mut seen[c], true) {
+            return Err(format!("pick {} reuses a cell", i + 1));
+        }
+        let (r, col) = (c / p.cols, c % p.cols);
+        if i == 0 {
+            if r != 0 {
+                return Err("first pick must be in the top row".into());
+            }
+        } else {
+            let prev = path[i - 1] as usize;
+            let (pr, pc) = (prev / p.cols, prev % p.cols);
+            if i % 2 == 1 {
+                if col != pc {
+                    return Err(format!("pick {} must stay in the column of pick {}", i + 1, i));
+                }
+            } else if r != pr {
+                return Err(format!("pick {} must stay in the row of pick {}", i + 1, i));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Best route that begins with the picks already made; the returned path starts with them.
+pub fn solve_from(p: &Puzzle, opt: &SolveOptions, played: &[u16]) -> Result<Solution, String> {
+    p.validate()?;
+    if p.rows > 16 || p.cols > 16 {
+        return Err(format!("unsupported matrix size {}x{}", p.rows, p.cols));
+    }
+    legal(p, played)?;
     let kinds = opt.matcher.kinds();
     let mut units = Vec::new();
     for (d, dm) in p.daemons.iter().enumerate() {
@@ -470,10 +511,29 @@ pub fn solve_with(p: &Puzzle, opt: &SolveOptions) -> Solution {
     for (d, &n) in s.need_units.iter().enumerate() {
         st.dleft[d] = n;
     }
-    s.dfs(0, 0, true, &st);
+    for (i, &cell) in played.iter().enumerate() {
+        st = s.apply(&st, cell as usize).0;
+        s.path[i] = cell;
+    }
+    // what the picks made so far have earned stands even if nothing more can be added
+    s.best = Solution {
+        reward: st.reward,
+        uploaded: st.ddone,
+        path: played.to_vec(),
+        ..Solution::default()
+    };
+    if st.reward > 0 {
+        s.best_len = played.len();
+    }
+    let (line, is_row) = match played.last() {
+        None => (0, true),
+        Some(&last) if played.len() % 2 == 1 => (last as usize % p.cols, false),
+        Some(&last) => (last as usize / p.cols, true),
+    };
+    s.dfs(played.len(), line, is_row, &st);
     s.best.nodes = s.nodes;
     s.best.proven = s.nodes <= opt.node_budget;
-    s.best
+    Ok(s.best)
 }
 
 pub fn solve(p: &Puzzle, matcher: Matcher) -> Solution {
@@ -512,9 +572,7 @@ pub struct Replay {
 /// Independent replay of a route against the rules. Used by tests and before anything is displayed.
 pub fn verify(p: &Puzzle, path: &[u16], matcher: Matcher) -> Result<Replay, String> {
     p.validate()?;
-    if path.len() > p.buffer {
-        return Err(format!("route has {} picks, buffer holds {}", path.len(), p.buffer));
-    }
+    legal(p, path)?;
     let kinds = matcher.kinds();
     let tables: Vec<Vec<Vec<[u8; MAX_CODES]>>> =
         p.daemons.iter().map(|d| kinds.iter().map(|&k| unit_table(&d.seq, k)).collect()).collect();
@@ -523,32 +581,8 @@ pub fn verify(p: &Puzzle, path: &[u16], matcher: Matcher) -> Result<Replay, Stri
     let mut uploaded = 0u32;
     let mut reward = 0u32;
     let mut uploaded_at = Vec::with_capacity(path.len());
-    let mut seen = vec![false; p.rows * p.cols];
-    for (i, &c) in path.iter().enumerate() {
-        let c = c as usize;
-        if c >= p.rows * p.cols {
-            return Err(format!("pick {} is outside the matrix", i + 1));
-        }
-        if std::mem::replace(&mut seen[c], true) {
-            return Err(format!("pick {} reuses a cell", i + 1));
-        }
-        let (r, col) = (c / p.cols, c % p.cols);
-        if i == 0 {
-            if r != 0 {
-                return Err("first pick must be in the top row".into());
-            }
-        } else {
-            let prev = path[i - 1] as usize;
-            let (pr, pc) = (prev / p.cols, prev % p.cols);
-            if i % 2 == 1 {
-                if col != pc {
-                    return Err(format!("pick {} must stay in the column of pick {}", i + 1, i));
-                }
-            } else if r != pr {
-                return Err(format!("pick {} must stay in the row of pick {}", i + 1, i));
-            }
-        }
-        let code = p.cells[c] as usize;
+    for &c in path {
+        let code = p.cells[c as usize] as usize;
         let mut now = 0u32;
         for d in 0..p.daemons.len() {
             if uploaded >> d & 1 == 1 {
@@ -749,6 +783,92 @@ mod tests {
         let mut best = (0u32, usize::MAX);
         rec(p, m, &mut Vec::new(), 0, true, &mut best);
         best
+    }
+
+    /// Every route that begins with `played`, tried one by one: the best reward and the fewest picks that earn it.
+    fn brute_from(p: &Puzzle, m: Matcher, played: &[u16]) -> (u32, usize) {
+        fn rec(p: &Puzzle, m: Matcher, path: &mut Vec<u16>, best: &mut (u32, usize)) {
+            if !path.is_empty() {
+                let r = verify(p, path, m).unwrap().reward;
+                if r > best.0 || (r == best.0 && r > 0 && path.len() < best.1) {
+                    *best = (r, path.len());
+                }
+            }
+            if path.len() == p.buffer {
+                return;
+            }
+            for cell in 0..(p.rows * p.cols) as u16 {
+                path.push(cell);
+                if legal(p, path).is_ok() {
+                    rec(p, m, path, best);
+                }
+                path.pop();
+            }
+        }
+        let mut best = (0u32, usize::MAX);
+        rec(p, m, &mut played.to_vec(), &mut best);
+        best
+    }
+
+    /// A legal start of `len` picks, chosen at random.
+    fn random_start(p: &Puzzle, rng: &mut Rng, len: usize) -> Vec<u16> {
+        let mut path: Vec<u16> = Vec::new();
+        while path.len() < len {
+            let open: Vec<u16> = (0..(p.rows * p.cols) as u16)
+                .filter(|&c| {
+                    path.push(c);
+                    let ok = legal(p, &path).is_ok();
+                    path.pop();
+                    ok
+                })
+                .collect();
+            if open.is_empty() {
+                break;
+            }
+            path.push(open[rng.below(open.len())]);
+        }
+        path
+    }
+
+    #[test]
+    fn resuming_matches_exhaustive_search_from_any_legal_start() {
+        let mut rng = Rng(0x0BAD_5EED_1357_9BDF);
+        for case in 0..300 {
+            let n = 3 + rng.below(2);
+            let codes = 2 + rng.below(3);
+            let nd = 1 + rng.below(4);
+            let cells: Vec<u8> = (0..n * n).map(|_| rng.below(codes) as u8).collect();
+            let seqs: Vec<Vec<u8>> = (0..nd)
+                .map(|_| (0..2 + rng.below(3)).map(|_| rng.below(codes) as u8).collect())
+                .collect();
+            let p = Puzzle::square(n, cells, seqs, 3 + rng.below(4));
+            let len = rng.below(p.buffer + 1);
+            let played = random_start(&p, &mut rng, len);
+            for m in [Matcher::Substring, Matcher::Retest, Matcher::Strict, Matcher::Unanimous] {
+                let want = brute_from(&p, m, &played);
+                let opt = SolveOptions { matcher: m, node_budget: u64::MAX, dp_bound: true };
+                let got = solve_from(&p, &opt, &played).unwrap();
+                assert!(got.proven && got.path.starts_with(&played), "case {case} {m:?}");
+                let len = if got.reward == 0 { usize::MAX } else { got.path.len() };
+                assert_eq!((got.reward, len), want, "case {case} {m:?} played {played:?} {p:?}");
+                if !got.path.is_empty() {
+                    let rp = verify(&p, &got.path, m).unwrap();
+                    assert_eq!((rp.reward, rp.uploaded), (got.reward, got.uploaded));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn resuming_from_nothing_is_solving_and_an_illegal_start_is_refused() {
+        let p = pz(&[&[0, 1, 2], &[1, 2, 0], &[2, 0, 1]], &[&[0, 1], &[2, 2]], 4);
+        let opt = SolveOptions::default();
+        assert_eq!(solve_from(&p, &opt, &[]).unwrap().path, solve_with(&p, &opt).path);
+        assert!(solve_from(&p, &opt, &[4]).is_err(), "a first pick outside the top row");
+        assert!(
+            solve_from(&p, &opt, &[0, 1]).is_err(),
+            "a second pick outside the first one's column"
+        );
     }
 
     #[test]

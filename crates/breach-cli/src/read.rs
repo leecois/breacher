@@ -179,8 +179,7 @@ pub fn probe(path: &Path, buffer: Option<usize>) -> Result<(), String> {
                 }
             })
             .collect(),
-        uploaded: vec![],
-        missed: vec![],
+        ..Route::default()
     };
     println!("{}x{} matrix, buffer {}\n", n, n, puzzle.buffer);
     print!("{}", grid(&reading, &route));
