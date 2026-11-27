@@ -22,7 +22,7 @@ other crates and the app only feed it pixels and show what it returns.
 
 | Path | What it holds |
 |---|---|
-| `crates/breach-core` | The reader (`image`, `glyph`, `reader`), the solver (`solver`), the planner (`plan`) and the one-call entry point for front ends (`api`). Depends only on `serde`. |
+| `crates/breach-core` | The reader (`image`, `glyph`, `reader`), the solver (`solver`), the planner (`plan`), the reader of a breach under way (`progress`) and the one-call entry point for front ends (`api`). Depends only on `serde`. |
 | `crates/breach-core/src/reader` | One module per stage of the reader: `segment` (strokes), `lattice` (the matrix), `sequences`, `buffer`, with `region`, `measure` and `debug` as shared helpers. `reader.rs` holds the public types and runs the stages in order. |
 | `crates/breach-cli` | The `breach` command. `read` and `rule-probe` for players; `eval`, `learn-templates`, `calibrate`, `separation` and `bench-solver` for development. |
 | `crates/breach-capture` | One-shot screen capture: finds the game window, checks permission without prompting, returns the frame and where it sits on screen. `version` reads the game's version from its executable. |
@@ -170,7 +170,13 @@ routes planned afterwards.
   several times a second and takes the route down once no code matrix has been on it for three
   looks in a row, or the game is minimised. Where a repeated capture would flash a border round
   the game, as on Windows 10, the route stays up for a fixed time. A capture that is not read
-  puts a short notice on the same overlay, since nothing else reaches a player inside the game. A watched folder reads new screenshots as they appear and needs no
+  puts a short notice on the same overlay, since nothing else reaches a player inside the game.
+  The same looks are read for picks. `progress::look` tells, by colour alone, which cells show
+  their code, the pointer's box, the flash of a pick or the brackets left by one, and how many
+  buffer slots are filled for good; the code previewed under the pointer does not count.
+  `progress::advance` puts newly picked cells into the only order the rules allow, and refuses a
+  look that does not fit. The shell then counts the picks off the route, or plans the rest again
+  with `plan_from` when a pick left it. A look that is refused changes nothing. A watched folder reads new screenshots as they appear and needs no
   capture permission. The shell writes a settings file and a plain-text log beside it. It runs as
   a single instance. Closing the main window puts it away and leaves the program in the tray, hotkey
   and all; the tray menu ends it. Where there is no tray, or the player turns that off, closing the

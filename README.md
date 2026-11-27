@@ -32,7 +32,8 @@ There are three ways to give Breacher a screen:
 
 1. **Hotkey** (`Ctrl Shift B`, `⌘ ⇧ B` on macOS): captures the game window, shows the route in the
    app and, if enabled, draws it over the game. The route stays there until the breach screen
-   closes. When another program already holds that
+   closes. While you play, Breacher follows your picks: played steps fade, the next one stands
+   out, and after a pick off the route it plans the rest again from where the breach stands. When another program already holds that
    combination, Breacher takes the next free one and says which; **Change** sets your own.
 2. **Watched folder**: point it at the folder where the game, its launcher or the OS saves
    screenshots; new files are read as they appear. Needs no capture permission.
