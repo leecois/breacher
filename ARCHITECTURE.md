@@ -153,6 +153,11 @@ tells the rules apart. `verify` replays a route independently and is run before 
 choices without reading the frame again: which daemons are wanted, a buffer size set by hand, and
 whether more daemons or the last daemon comes first (`Priority`).
 
+`plan_from` plans the rest of a breach that is under way, from the picks already made. `rule_check`
+returns a route whose result differs between the wrong-pick rules still in play, with what each
+outcome then says about the rule; a rule that has been ruled out narrows both the check and the
+routes planned afterwards.
+
 ## Front ends
 
 - **WebAssembly.** `bp_read` and `bp_plan` take bytes and return a little-endian `u32` length

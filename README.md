@@ -85,7 +85,9 @@ matching automata, and is checked against exhaustive enumeration in the tests.
 One game rule is not confirmed: what happens to a daemon's progress when a pick does not continue its
 sequence. Three candidate rules are implemented. By default the planner returns a route that works
 under all three, and separately offers a riskier one when plain substring matching would upload more.
-[docs/RULE-CHECK.md](docs/RULE-CHECK.md) explains how to settle the rule with one in-game attempt.
+**Check the rule with a breach** in the app settles it: Breacher draws a route chosen to tell the
+rules apart, you play it and say what uploaded. [docs/RULE-CHECK.md](docs/RULE-CHECK.md) has the
+details.
 
 ## Accuracy and speed
 

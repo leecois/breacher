@@ -21,7 +21,21 @@ three-daemon puzzles and up to 44% of seven-daemon ones (`breach bench-solver`, 
 It plans a route that uploads the same daemons under all three rules. When plain substring matching
 would upload more, that route is offered separately and labelled as depending on an unconfirmed rule.
 
-## Finding out, in one attempt
+## Finding out in the app
+
+1. In the Plan panel, under "What a wrong pick does", choose **Check the rule with a breach**.
+2. Open a breach you can spare and capture it as usual. The route drawn, in the window and over the
+   game, is now a rule check: it is chosen to tell the rules apart, not to upload the most, and the
+   line over the game says so.
+3. Play exactly those picks, then tell Breacher what the game uploaded.
+
+Most screens separate one rule from the other two, so the first answer either settles the rule or
+rules one out; in the second case the next breach you capture goes on with the check, and one more
+answer settles it. Meanwhile routes are planned to work under the rules still in play. If what
+uploaded matches none of the choices, say so: nothing is changed, and a saved report with a note of
+what uploaded is worth sending.
+
+## Finding out on the command line
 
 1. Open a breach at an access point and take a screenshot before the first pick.
 2. Run
