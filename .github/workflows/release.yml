@@ -32,6 +32,11 @@ jobs:
       - name: Reader and solver tests
         run: cargo test --release -p breach-core
 
+      # reported, not required: these touch the machine's windows and system files
+      - name: Capture tests
+        continue-on-error: true
+        run: cargo test -p breach-capture -- --nocapture
+
       - name: Command-line tool
         run: cargo build --release -p breach-cli
 
