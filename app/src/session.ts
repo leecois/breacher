@@ -167,6 +167,12 @@ export async function learnt(rule: Matcher): Promise<void> {
   await planAgain()
 }
 
+/** Says that a breach did not go the way any rule still in play predicts: nothing is changed, but the player should know. */
+export function doubted(): void {
+  state.ruleNote = t('The breach you just played did not go the way any rule still in play predicts. If that happens again, set the rule back to "Not confirmed yet" and save a report.')
+  redraw(false)
+}
+
 /** Takes in how a rule check turned out and plans again with what it showed. */
 export async function answerCheck(seen: Outcome | 'other' | 'skipped'): Promise<void> {
   state.check = null

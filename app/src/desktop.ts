@@ -67,8 +67,8 @@ export interface UpdateInfo {
 }
 
 export interface Desktop {
-  /** `onGame` hears the version of the game each time a capture finds its window, `onProgress` each pick seen in it, `onRule` what a breach that was played showed about the wrong-pick rule. */
-  start(onAnswer: (a: AnswerEvent) => void, onGame: (version: string) => void, onProgress: (p: ProgressEvent) => void, onRule: (rule: Matcher) => void): Promise<ShellStatus>
+  /** `onGame` hears the version of the game each time a capture finds its window, `onProgress` each pick seen in it, `onRule` what a breach that was played showed about the wrong-pick rule, or null when it fitted none of the rules in play. */
+  start(onAnswer: (a: AnswerEvent) => void, onGame: (version: string) => void, onProgress: (p: ProgressEvent) => void, onRule: (rule: Matcher | null) => void): Promise<ShellStatus>
   /** Say which route the window shows and under which choices, so that picks are followed against that one. */
   follow(route: Route, wanted: boolean[] | null, buffer: number | null, check: boolean): void
   status(): Promise<ShellStatus>
@@ -122,6 +122,7 @@ function make(): Desktop {
       await listen<string>('game-version', e => onGame(e.payload))
       await listen<ProgressEvent>('progress', e => onProgress(e.payload))
       await listen<Matcher>('rule', e => onRule(e.payload))
+      await listen('rule-doubt', () => onRule(null))
       const { invoke } = await core
       return invoke<ShellStatus>('status')
     },

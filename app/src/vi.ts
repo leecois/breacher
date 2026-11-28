@@ -218,6 +218,7 @@ export const words: Record<string, string> = {
   'The next breach goes on with the check.': 'Lượt xâm nhập sau sẽ kiểm tra tiếp.',
   'Routes still work under both rules that remain.': 'Đường đi vẫn đúng với cả hai luật còn lại.',
   'Seen in the breach you just played.': 'Thấy được từ lượt xâm nhập bạn vừa chơi.',
+  'The breach you just played did not go the way any rule still in play predicts. If that happens again, set the rule back to "Not confirmed yet" and save a report.': 'Lượt xâm nhập bạn vừa chơi không diễn ra như bất kỳ luật nào còn lại dự đoán. Nếu điều đó lặp lại, hãy đặt luật về "Chưa xác nhận" và lưu báo cáo.',
   'The rule check was not played as drawn, so it was dropped. The route now makes the most of where the breach stands.': 'Lần kiểm tra luật không được chơi đúng như đã vẽ nên đã bị bỏ. Đường đi giờ tận dụng tốt nhất tình trạng hiện tại.',
   'None of the rules in play predicts that, so nothing was changed. Save a report and say what uploaded.': 'Không luật nào còn lại dự đoán kết quả đó, nên không đổi gì. Hãy lưu báo cáo và cho biết daemon nào đã tải lên.',
 }

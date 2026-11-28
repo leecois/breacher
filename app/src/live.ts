@@ -5,7 +5,7 @@ import { $ } from './dom'
 import { canFloat, closeFloat, isFloating, openFloat, paintFloat } from './float'
 import { t } from './i18n'
 import { daemonNames, status } from './render'
-import { attachImage, followed, learnt, readPixels, showRead } from './session'
+import { attachImage, doubted, followed, learnt, readPixels, showRead } from './session'
 import { shownRoute, state } from './state'
 import type { Fate, FrameInfo, Response } from './types'
 
@@ -225,6 +225,7 @@ async function settle(): Promise<void> {
     await learnt(found.rule)
     watch(t('{words} It also told something about the wrong-pick rule: see the Plan panel.', { words }))
   } else {
+    if (found?.kind === 'contradicted') doubted()
     watch(words)
   }
 }

@@ -2,7 +2,7 @@ import { desktop, type AnswerEvent, type Desktop, type ShellStatus, type Targets
 import { $ } from './dom'
 import { lang, t, tWhole } from './i18n'
 import { showVersions, status as say } from './render'
-import { attachImage, followed, learnt, show } from './session'
+import { attachImage, doubted, followed, learnt, show } from './session'
 import { remembered, state } from './state'
 import type { FrameInfo, Target } from './types'
 
@@ -173,7 +173,7 @@ export async function startShell(): Promise<void> {
       onAnswer,
       game => showVersions({ game }),
       p => followed(p.route, p.replanned),
-      rule => void learnt(rule),
+      rule => (rule ? void learnt(rule) : doubted()),
     ),
   )
   wireHotkey(shell)
