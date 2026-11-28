@@ -1,3 +1,22 @@
+## New in 0.4.0
+
+- **Fixed: the route hidden under the game.** After switching between windows the route could be
+  drawn under the game, visible only while Breacher's own window was in front. Breacher now puts
+  it back on top every time it captures and every time it looks at the game.
+- **No hotkey needed.** Switch on **Read each breach as it opens** and Breacher watches the game
+  while you are in it: the route is drawn about a second after a breach opens. It is off until you
+  choose it, because watching takes a little processor time. The hotkey works as before.
+- **The rule finds itself.** What the game does on a wrong pick used to need the rule check. Now,
+  after each breach it follows, Breacher reads what ended up in the buffer and which daemons the
+  game installed, and drops every rule that would have predicted something else. Play as usual:
+  breaches with a wrong pick in them are the ones that tell. The Plan panel says when something
+  was learnt. A rule check you play is answered the same way, without asking you.
+- **Tiếng Việt.** The window, the route over the game and the browser version speak Vietnamese:
+  choose it at the bottom of the window. A browser set to Vietnamese starts in it.
+- Screens of the current game are no longer logged as an "unusual layout".
+- New in this version and not yet tried in the real game: reading without the hotkey and learning
+  the rule. Both were built from frames of real breaches; a saved report shows what they did.
+
 ## New in 0.3.0
 
 - **Breacher in a browser.** <https://leecois.github.io/breacher/> needs no download. Press

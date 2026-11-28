@@ -6,6 +6,27 @@ Notable changes for people who use Breacher. The format follows
 
 ## Unreleased
 
+## 0.4.0 - 2026-11-28
+
+### Added
+
+- **Read each breach as it opens**: the desktop program can watch the game and draw the route
+  without the hotkey. Off by default; offered where watching the game goes unseen.
+- The wrong-pick rule is learnt from play. After a breach that was followed, the buffer and the
+  installed daemons are read from the game and every rule that predicts another result is dropped.
+  This also answers a rule check, in the desktop program and in the browser.
+- Vietnamese, chosen from the list at the bottom of the window or taken from the browser.
+- The reader knows the arrangement of the panels the game has used since its matrix grows from
+  the left, and no longer reports those screens as unusual.
+
+### Fixed
+
+- The route over the game could end up under the game after switching windows, and showed only
+  while Breacher's own window was in front. It is now put back on top at every capture and every
+  look.
+- Changing a choice in the window no longer draws a route over the game after that route was
+  taken down.
+
 ## 0.3.0 - 2026-11-28
 
 ### Added
