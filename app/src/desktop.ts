@@ -41,6 +41,8 @@ export interface ShellStatus {
   updates: boolean
   /** What a capture is pointed at. */
   target: Target
+  /** The game is watched and each breach read as it opens; null where watching would show on screen. */
+  auto: boolean | null
   /** Closing the window keeps the program in the tray; null where there is no tray. */
   tray: boolean | null
   /** The program starts when the player signs in; null when the system will not say. */
@@ -93,6 +95,7 @@ export interface Desktop {
   /** The windows and displays that are there to capture at this moment. */
   listTargets(): Promise<Targets>
   setTarget(target: Target): Promise<ShellStatus>
+  setAuto(enabled: boolean): Promise<ShellStatus>
   setUpdates(enabled: boolean): Promise<ShellStatus>
   setTray(enabled: boolean): Promise<ShellStatus>
   setAutostart(enabled: boolean): Promise<ShellStatus>
@@ -189,6 +192,10 @@ function make(): Desktop {
     async setTarget(target) {
       const { invoke } = await core
       return invoke<ShellStatus>('set_target', { target })
+    },
+    async setAuto(enabled) {
+      const { invoke } = await core
+      return invoke<ShellStatus>('set_auto', { enabled })
     },
     async setUpdates(enabled) {
       const { invoke } = await core

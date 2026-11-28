@@ -4,6 +4,7 @@ mod follow;
 mod hotkey;
 mod report;
 mod update;
+mod watch;
 
 use base64::Engine;
 use breach_capture::{CaptureError, Permission, Target};
@@ -51,6 +52,8 @@ struct Settings {
     updates: bool,
     /// Keep running in the tray, hotkey and all, when the main window is closed.
     tray: bool,
+    /// Watch the game and read each breach as it opens, without the hotkey.
+    auto: bool,
     /// The version that ran last: the first start of a new one shows its window even when asked to start hidden.
     last_version: Option<String>,
 }
@@ -69,6 +72,7 @@ impl Default for Settings {
             hotkey: None,
             updates: true,
             tray: true,
+            auto: false,
             last_version: None,
         }
     }
@@ -163,6 +167,8 @@ struct ShellStatus {
     updates: bool,
     /// What a capture looks for: the game on its own, a window the player named, or a display.
     target: Target,
+    /// Whether the game is watched for breaches; `None` where looking again and again would show.
+    auto: Option<bool>,
     /// Whether closing the window keeps the program in the tray; `None` where there is no tray.
     tray: Option<bool>,
     autostart: Option<bool>,
@@ -216,6 +222,7 @@ fn status_of(shell: &Shell) -> ShellStatus {
         overlay: settings.overlay,
         updates: settings.updates,
         target: settings.target,
+        auto: breach_capture::recapture_is_quiet().then_some(settings.auto),
         tray: shell.tray.load(Ordering::SeqCst).then_some(settings.tray),
         autostart: *shell.autostart.lock().unwrap(),
         log_path: shell.log_path.display().to_string(),
@@ -523,6 +530,70 @@ fn present(
     });
 }
 
+/// Watches the game for a breach to open and draws its route unasked, for as long as the player wants that.
+fn watch_game(app: AppHandle) {
+    let shell = app.state::<Shell>();
+    let mut watch = watch::Watch::default();
+    let mut game: Option<(Target, breach_capture::Source)> = None;
+    let mut sought: Option<Instant> = None;
+    loop {
+        std::thread::sleep(if watch.pending() { watch::AGAIN } else { watch::TICK });
+        let settings = shell.settings.lock().unwrap().clone();
+        let resting = !settings.auto
+            || !breach_capture::recapture_is_quiet()
+            || shell.following.load(Ordering::SeqCst);
+        if resting {
+            // whatever is on screen when the watch goes on again is new to it
+            watch = watch::Watch::default();
+            continue;
+        }
+        if game.as_ref().is_some_and(|(target, _)| *target != settings.target) {
+            game = None;
+        }
+        if game.is_none() {
+            if sought.is_some_and(|at| at.elapsed() < watch::SEEK) {
+                continue;
+            }
+            sought = Some(Instant::now());
+            game = breach_capture::find(&settings.target)
+                .map(|found| (settings.target.clone(), found));
+        }
+        let Some((_, source)) = &game else { continue };
+        // nothing opens in a game the player is not in, and a look costs it a little
+        if !source.in_front() {
+            continue;
+        }
+        let Ok(_one) = shell.capturing.try_lock() else { continue };
+        let started = Instant::now();
+        let mut cap = match source.grab() {
+            Ok(cap) => cap,
+            Err(CaptureError::Minimised) => continue,
+            Err(_) => {
+                // the window is gone: the game is looked for again
+                game = None;
+                continue;
+            }
+        };
+        let made = {
+            let (w, h) = (cap.width as usize, cap.height as usize);
+            let frame = Frame::new(w, h, PixelFormat::Rgba8, &cap.rgba);
+            if !watch.wants(frame.glance(watch::GLANCE.0, watch::GLANCE.1)) {
+                continue;
+            }
+            let fallback = Some(settings.last_buffer.unwrap_or(4));
+            let options = ReadOptions { buffer_fallback: fallback, ..ReadOptions::default() };
+            breach_core::reader::read(&frame, &shell.templates, &options).ok()
+        };
+        if !watch.agrees(made.as_ref().map(watch::made)) {
+            continue;
+        }
+        log(&shell, "a breach opened: read without the hotkey");
+        cap.program = source.program();
+        let generation = begin(&app);
+        present(&app, cap, started, generation, &settings, false);
+    }
+}
+
 /// Tells the overlay and the main window how the followed route now stands.
 fn tell_progress(app: &AppHandle, shell: &Shell, replanned: bool) {
     let guard = shell.followed.lock().unwrap();
@@ -802,6 +873,17 @@ fn list_targets() -> Targets {
 fn set_target(shell: State<Shell>, target: Target) -> ShellStatus {
     log(&shell, &format!("capture target set to {target:?}"));
     shell.settings.lock().unwrap().target = target;
+    save(&shell);
+    status_of(&shell)
+}
+
+#[tauri::command]
+fn set_auto(shell: State<Shell>, enabled: bool) -> ShellStatus {
+    log(
+        &shell,
+        if enabled { "watching the game for breaches" } else { "no longer watching the game" },
+    );
+    shell.settings.lock().unwrap().auto = enabled;
     save(&shell);
     status_of(&shell)
 }
@@ -1119,6 +1201,10 @@ pub fn run() {
             if let Some(dir) = watch_dir {
                 let _ = start_watching(app.handle(), Some(dir));
             }
+            {
+                let handle = app.handle().clone();
+                std::thread::spawn(move || watch_game(handle));
+            }
             // BREACHER_SELFTEST=<image>: run the native pipeline once on a file, print the outcome, quit.
             if let Some(path) = std::env::var_os("BREACHER_SELFTEST") {
                 let handle = app.handle().clone();
@@ -1172,9 +1258,16 @@ pub fn run() {
                                 let back = set_target(handle.state(), Target::Auto).target;
                                 format!("{} windows, {} displays, display 1 {grabbed}, back to {back:?}", found.windows.len(), found.displays.len())
                             };
+                            // the watch for breaches is switched on, left to look for a game that is not there, and switched off again
+                            let watching = {
+                                let on = set_auto(handle.state(), true).auto;
+                                std::thread::sleep(watch::TICK * 2);
+                                let off = set_auto(handle.state(), false).auto;
+                                format!("on {on:?}, off again {off:?}")
+                            };
                             let stack = overlay_stack(&handle);
                             format!(
-                                "selftest: {summary} | frame {}x{} | {:.1} ms | hotkey: {} | windows: main={} overlay={} | capture permission: {:?} | frame url: {} | update: {update} | version the system reports for this program: {own} | report: {report} | start at sign-in: {autostart} | rule check: {check} | capture targets: {targets} | overlay: {stack}",
+                                "selftest: {summary} | frame {}x{} | {:.1} ms | hotkey: {} | windows: main={} overlay={} | capture permission: {:?} | frame url: {} | update: {update} | version the system reports for this program: {own} | report: {report} | start at sign-in: {autostart} | rule check: {check} | capture targets: {targets} | overlay: {stack} | watch: {watching}",
                                 meta.width,
                                 meta.height,
                                 started.elapsed().as_secs_f32() * 1e3,
@@ -1211,7 +1304,7 @@ pub fn run() {
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![status, capture, allow_capture, set_priority, set_matcher, set_checking, set_overlay, dismiss_overlay, shown_route, list_targets, set_target, set_updates, set_tray, set_autostart, report::save_report, watch_folder, pause_hotkey, set_hotkey, last_frame_url,
+        .invoke_handler(tauri::generate_handler![status, capture, allow_capture, set_priority, set_matcher, set_checking, set_overlay, dismiss_overlay, shown_route, list_targets, set_target, set_auto, set_updates, set_tray, set_autostart, report::save_report, watch_folder, pause_hotkey, set_hotkey, last_frame_url,
             update::check_update,
             update::install_update,
             update::open_downloads])

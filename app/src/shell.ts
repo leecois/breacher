@@ -70,6 +70,8 @@ function showShell(status: ShellStatus, problem?: string): void {
   $<HTMLInputElement>('overlay-on').checked = status.overlay
   $<HTMLInputElement>('updates-on').checked = status.updates
   showTargets(status.target)
+  $<HTMLElement>('auto-set').hidden = status.auto === null
+  $<HTMLInputElement>('auto-on').checked = status.auto === true
   $<HTMLElement>('tray-set').hidden = status.tray === null
   $<HTMLInputElement>('tray-on').checked = status.tray === true
   $<HTMLElement>('autostart-set').hidden = status.autostart === null
@@ -205,6 +207,7 @@ export async function startShell(): Promise<void> {
     showShell(await shell.setTarget(JSON.parse(target.value) as Target))
     target.blur()
   })
+  $<HTMLInputElement>('auto-on').addEventListener('change', async e => showShell(await shell.setAuto((e.target as HTMLInputElement).checked)))
   $<HTMLInputElement>('tray-on').addEventListener('change', async e => showShell(await shell.setTray((e.target as HTMLInputElement).checked)))
   $<HTMLInputElement>('autostart-on').addEventListener('change', async e => {
     try {
@@ -255,6 +258,7 @@ export function previewShell(): void {
     ],
   }
   showTargets(new URLSearchParams(location.search).get('target') === 'display' ? { kind: 'display', value: 1 } : { kind: 'auto' })
+  $<HTMLElement>('auto-set').hidden = false
   $<HTMLElement>('tray-set').hidden = false
   $<HTMLInputElement>('tray-on').checked = true
   $<HTMLElement>('autostart-set').hidden = false
