@@ -60,8 +60,10 @@ fn fail<T>(stage: Stage, message: impl Into<String>) -> Result<T, ReadError> {
 pub struct Layout {
     /// Matrix pitch at 1920x1080, in pixels (used only as a scale prior).
     pub pitch_at_1080p: f32,
-    /// Sequence column 0 centre = matrix centre x + (n / 2 + this) * px.
+    /// Sequence column 0 centre = matrix centre x + (n / 2 + this) * px, where the list follows the matrix's width.
     pub seq_col_offset: f32,
+    /// Sequence column 0 centre = matrix column 0 + this * px, where the matrix grows from the left and the list stays put.
+    pub seq_from_first: f32,
     /// Horizontal pitch of sequence codes and of buffer slots.
     pub seq_pitch_x: f32,
     /// Allowed vertical pitch of sequence rows (differs by language: 1.05 English, 0.97 Chinese).
@@ -79,6 +81,7 @@ impl Default for Layout {
         Layout {
             pitch_at_1080p: 64.5,
             seq_col_offset: 3.22,
+            seq_from_first: 9.42,
             seq_pitch_x: 0.651,
             seq_pitch_y: (0.90, 1.15),
             buffer_row: -2.57,
@@ -172,7 +175,7 @@ pub struct Quality {
     pub buffer_assumed: bool,
     pub scale_mult: f32,
     pub decimation: usize,
-    /// The sequence column was not where the layout predicts and was found by a wide search.
+    /// The sequence column is in neither of the places the known layouts put it; it was found all the same.
     pub layout_fallback: bool,
 }
 

@@ -88,6 +88,8 @@ struct Screen {
     buffer: usize,
     /// Sequence panel moved down by this many pitches from where captures put it.
     seq_dy: f32,
+    /// Sequence and buffer panels moved right by this many pitches.
+    seq_dx: f32,
 }
 
 fn compose(g: &Glyphs, s: &Screen) -> RgbImage {
@@ -134,7 +136,7 @@ fn compose(g: &Glyphs, s: &Screen) -> RgbImage {
     }
     vline(&mut img, x0 + (n - 0.5) * p + 0.35 * p, y0 - 0.6 * p, y0 + (n - 0.4) * p); // matrix panel border
                                                                                       // sequences: a header line of text, a separator rule, the rows, the panel's bottom border
-    let sx = xc + (n / 2.0 + l.seq_col_offset) * p;
+    let sx = xc + (n / 2.0 + l.seq_col_offset + s.seq_dx) * p;
     let first = y0 - 0.32 * p + s.seq_dy * p;
     for (r, seq) in s.sequences.iter().enumerate() {
         let y = first + r as f32 * 1.055 * p;
@@ -174,7 +176,7 @@ fn random_screen(rng: &mut Rng, n: usize, buffer: usize, daemons: usize) -> Scre
     let sequences = (0..daemons)
         .map(|_| (0..2 + rng.below(4)).map(|_| pool[rng.below(pool.len())]).collect())
         .collect();
-    Screen { n, matrix, sequences, buffer, seq_dy: 0.0 }
+    Screen { n, matrix, sequences, buffer, seq_dy: 0.0, seq_dx: 0.0 }
 }
 
 fn check(img: &RgbImage, s: &Screen, what: &str) {
@@ -247,6 +249,7 @@ fn a_code_missing_from_the_matrix_is_read_and_reported() {
         sequences: vec![vec![0, 4, 4, 2, 3], vec![4, 1, 1], vec![2, 3, 0]],
         buffer: 6,
         seq_dy: 0.0,
+        seq_dx: 0.0,
     };
     let r = run(&compose(&g, &s)).unwrap();
     assert_eq!(r.sequences, s.sequences);
@@ -254,6 +257,27 @@ fn a_code_missing_from_the_matrix_is_read_and_reported() {
     // the plan simply cannot upload those daemons
     let p = breach_core::plan::plan(&r, &breach_core::plan::PlanOptions::default());
     assert!(!p.route.uploaded.contains(&0) && !p.route.uploaded.contains(&2));
+}
+
+/// The list a fixed way from the matrix's first column, as the game has drawn it since the matrix grows from the left, is as usual as the list that follows the matrix's width.
+#[test]
+fn both_known_arrangements_of_the_panels_are_usual() {
+    let g = harvest();
+    let mut rng = Rng(0x1357_9BDF_2468_0005);
+    let from_first = Layout::default().seq_from_first;
+    for n in [5usize, 6, 7] {
+        // where the list sits when it keeps its distance from column 0, measured from where it sits when it follows the width
+        let fixed =
+            from_first - (n as f32 - 1.0) / 2.0 - n as f32 / 2.0 - Layout::default().seq_col_offset;
+        for (dx, usual) in [(0.0, true), (fixed, true), (fixed + 0.12, true), (2.4, false)] {
+            let mut s = random_screen(&mut rng, n, 7, 3);
+            s.seq_dx = dx;
+            let what = format!("{n}x{n} with the panels moved {dx:+.2}");
+            let img = compose(&g, &s);
+            check(&img, &s, &what);
+            assert_eq!(run(&img).unwrap().quality.layout_fallback, !usual, "{what}");
+        }
+    }
 }
 
 /// A sequence panel higher or lower than in the captures gives an exact read or a refusal, never a wrong list.

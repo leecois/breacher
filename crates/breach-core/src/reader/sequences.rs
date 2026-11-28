@@ -29,13 +29,14 @@ pub(super) fn read_sequences(
     let gh = l.glyph_h * py;
     let xc = lat.x0 + (n - 1.0) / 2.0 * px;
     let x_pred = xc + (n / 2.0 + l.seq_col_offset) * px;
+    let x_fixed = lat.x0 + l.seq_from_first * px;
     // anchored to the matrix, not the prediction: the leftmost column of codes right of it is sequence column 0
     let matrix_right = lat.x0 + (n - 1.0) * px + 0.5 * px;
     let reg = Region::new(
         frame,
         matrix_right,
         lat.y0 - 3.0 * py,
-        (x_pred + 9.2 * q).max(matrix_right + 16.0 * q),
+        (x_pred.max(x_fixed) + 9.2 * q).max(matrix_right + 16.0 * q),
         lat.y0 + (n + 1.5).max(9.0) * py,
         px,
         opt.contrast,
@@ -201,7 +202,7 @@ pub(super) fn read_sequences(
         runs.remove(0);
     }
     // the layout prediction is only a report: how far the panel is from where captures put it
-    let fallback = (x0 - x_pred).abs() > 0.35 * q;
+    let fallback = (x0 - x_pred).abs().min((x0 - x_fixed).abs()) > 0.35 * q;
     dbg_log!("  sequence column: x_pred={x_pred:.1} x0={x0:.1} (off by {:.2} q) q={q:.1} gh={gh:.1} list band {top}..{bottom} of {h} ({} rules), {} rows", (x0 - x_pred) / q, rules.len(), runs.len());
     if runs.is_empty() {
         return fail(Stage::Sequences, "no glyph rows in the sequence column");
