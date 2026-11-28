@@ -1,4 +1,5 @@
 // Two renderings of a route: drawSheet is the schematic for the main window, drawOverlay the route alone in frame pixels.
+import { t } from './i18n'
 import { CODES, type Reading, type Route } from './types'
 
 const NS = 'http://www.w3.org/2000/svg'
@@ -65,8 +66,8 @@ export function drawSheet(svg: SVGSVGElement, reading: Pick<Reading, 'n' | 'matr
   svg.replaceChildren()
   svg.setAttribute('viewBox', `0 0 ${size} ${size}`)
   svg.setAttribute('role', 'img')
-  const order = route.steps.map(s => `${cellName(s.row, s.col)} ${CODES[s.code]}`).join(', then ')
-  svg.setAttribute('aria-label', route.steps.length ? `Code matrix ${n} by ${n}. Pick ${order}.` : `Code matrix ${n} by ${n}. No route.`)
+  const order = route.steps.map(s => `${cellName(s.row, s.col)} ${CODES[s.code]}`).join(t(', then '))
+  svg.setAttribute('aria-label', route.steps.length ? t('Code matrix {n} by {n}. Pick {order}.', { n, order }) : t('Code matrix {n} by {n}. No route.', { n }))
 
   const cx = (col: number): number => gutter + col * cell + cell / 2
   const cy = (row: number): number => gutter + row * cell + cell / 2

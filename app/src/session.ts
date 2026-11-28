@@ -2,6 +2,7 @@ import { findCheck, pixelsOf, readRgba, replan } from './core'
 import { desktop } from './desktop'
 import { $ } from './dom'
 import { paintFloat } from './float'
+import { t } from './i18n'
 import { render, renderRejected, ruleFinding, status, type Hooks } from './render'
 import { planOptions, remembered, shownRoute, state } from './state'
 import { settled, type FrameInfo, type Matcher, type Outcome, type Response, type Route, type RuleCheck } from './types'
@@ -35,7 +36,7 @@ function publish(response: Response, frame: FrameInfo): void {
 export function followed(route: Route, replanned: boolean): void {
   if (!state.plan || !state.reading) return
   if (replanned) {
-    if (state.check) state.ruleNote = 'The rule check was not played as drawn, so it was dropped. The route now makes the most of where the breach stands.'
+    if (state.check) state.ruleNote = t('The rule check was not played as drawn, so it was dropped. The route now makes the most of where the breach stands.')
     state.check = null
     state.optimistic = false
     state.plan = { ...state.plan, route, optimistic: null }
@@ -122,7 +123,7 @@ export function home(): void {
   state.check = null
   state.rejection = null
   setStage('empty')
-  status([['Status', 'No frame yet']])
+  status([['Status', t('No frame yet')]])
   desktop?.clearOverlay()
   paintFloat()
 }
@@ -158,7 +159,7 @@ export async function learnt(rule: Matcher): Promise<void> {
   state.matcher = rule
   remembered.matcher = rule
   $<HTMLSelectElement>('matcher').value = rule
-  state.ruleNote = `Seen in the breach you just played. ${ruleFinding(rule, state.checking ? undefined : 'Routes still work under both rules that remain.')}`
+  state.ruleNote = `${t('Seen in the breach you just played.')} ${ruleFinding(rule, state.checking ? undefined : 'Routes still work under both rules that remain.')}`
   if (settled(rule) && state.checking) {
     state.checking = false
     desktop?.setChecking(false)
@@ -174,7 +175,7 @@ export async function answerCheck(seen: Outcome | 'other' | 'skipped'): Promise<
     desktop?.setChecking(false)
   }
   if (seen === 'other') {
-    state.ruleNote = 'None of the rules in play predicts that, so nothing was changed. Save a report and say what uploaded.'
+    state.ruleNote = t('None of the rules in play predicts that, so nothing was changed. Save a report and say what uploaded.')
     stop()
   } else if (seen !== 'skipped') {
     state.matcher = seen.then

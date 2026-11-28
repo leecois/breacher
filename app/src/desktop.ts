@@ -1,4 +1,5 @@
 // Bridge to the desktop shell; in a plain browser `desktop` is null and the page works on dropped or pasted screenshots.
+import { t } from './i18n'
 import type { Matcher, Priority, Response, Route, RuleCheck, Target } from './types'
 
 export interface AnswerEvent {
@@ -96,6 +97,8 @@ export interface Desktop {
   listTargets(): Promise<Targets>
   setTarget(target: Target): Promise<ShellStatus>
   setAuto(enabled: boolean): Promise<ShellStatus>
+  /** Say which language the window speaks, for the words the shell shows itself. */
+  setLanguage(language: string): void
   setUpdates(enabled: boolean): Promise<ShellStatus>
   setTray(enabled: boolean): Promise<ShellStatus>
   setAutostart(enabled: boolean): Promise<ShellStatus>
@@ -199,6 +202,9 @@ function make(): Desktop {
       const { invoke } = await core
       return invoke<ShellStatus>('set_auto', { enabled })
     },
+    setLanguage(language) {
+      void core.then(({ invoke }) => invoke('set_language', { language })).catch(() => undefined)
+    },
     async setUpdates(enabled) {
       const { invoke } = await core
       return invoke<ShellStatus>('set_updates', { enabled })
@@ -217,7 +223,7 @@ function make(): Desktop {
     },
     async pickFolder() {
       const { open } = await import('@tauri-apps/plugin-dialog')
-      const picked = await open({ directory: true, multiple: false, title: 'Folder where screenshots are saved' })
+      const picked = await open({ directory: true, multiple: false, title: t('Folder where screenshots are saved') })
       return typeof picked === 'string' ? picked : null
     },
     async watchFolder(dir) {

@@ -1,14 +1,19 @@
 // The click-through window laid over the game: draws the route in the frame's own pixel space.
 import '@fontsource/rajdhani/700.css'
+import '@fontsource/chakra-petch/600.css'
 import './styles.css'
 import { routeCaption } from './caption'
 import { drawOverlay } from './draw'
+import { followLanguage, lang, tWhole } from './i18n'
 import type { OverlayPayload } from './desktop'
 
 const svg = document.getElementById('overlay') as unknown as SVGSVGElement
 const notice = document.getElementById('notice') as HTMLElement
 
+let painted: OverlayPayload | null = null
+
 function paint(p: OverlayPayload): void {
+  painted = p
   if (p.response.status !== 'ok' || !p.route) {
     svg.replaceChildren()
     return
@@ -22,9 +27,16 @@ function paint(p: OverlayPayload): void {
 /** Tells a player inside the game why a capture came to nothing. */
 function say(text: string): void {
   svg.replaceChildren()
-  notice.textContent = text
+  notice.textContent = tWhole(text)
   notice.hidden = false
 }
+
+// a change of language in the main window reaches the route that is up
+document.documentElement.lang = lang
+followLanguage(() => {
+  document.documentElement.lang = lang
+  if (painted) paint(painted)
+})
 
 // the breach the shell has a route up for: the main window may redraw that one, but not put a route up on its own
 let up: string | null = null

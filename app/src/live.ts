@@ -3,6 +3,7 @@ import { follow, learn, type Following } from './core'
 import { desktop } from './desktop'
 import { $ } from './dom'
 import { canFloat, closeFloat, isFloating, openFloat, paintFloat } from './float'
+import { t } from './i18n'
 import { daemonNames, status } from './render'
 import { attachImage, followed, learnt, readPixels, showRead } from './session'
 import { shownRoute, state } from './state'
@@ -70,7 +71,7 @@ function say(text: string): void {
   paintFloat(text)
 }
 
-const watchingWords = (): string => ($<HTMLInputElement>('live-auto').checked ? 'Watching for a breach.' : 'Open a breach in the game, then press Read now.')
+const watchingWords = (): string => ($<HTMLInputElement>('live-auto').checked ? t('Watching for a breach.') : t('Open a breach in the game, then press Read now.'))
 
 function picture(): { from: CanvasImageSource; width: number; height: number } | null {
   if (!sharing) return null
@@ -130,7 +131,7 @@ function watch(words: string, again = true): void {
 async function read(asked: boolean): Promise<void> {
   const image = pixels()
   if (!image || !sharing) {
-    if (asked) say('No picture has arrived yet. Try again in a moment.')
+    if (asked) say(t('No picture has arrived yet. Try again in a moment.'))
     return
   }
   const source = `Shared ${sharing.surface}`
@@ -153,7 +154,7 @@ async function read(asked: boolean): Promise<void> {
     played = []
     fates = []
     gone = 0
-    say('Breach read. The picks you make are counted off.')
+    say(t('Breach read. The picks you make are counted off.'))
   } else {
     watch(watchingWords())
   }
@@ -162,7 +163,8 @@ async function read(asked: boolean): Promise<void> {
 function outcomeWords(): string {
   const of = (fate: Fate): number[] => fates.flatMap((f, i) => (f === fate ? [i] : []))
   const [installed, failed] = [of('installed'), of('failed')]
-  return `Breach over: ${daemonNames(installed).toLowerCase()} installed${failed.length ? `, ${daemonNames(failed).toLowerCase()} failed` : ''}.`
+  const names = { installed: daemonNames(installed).toLowerCase(), failed: daemonNames(failed).toLowerCase() }
+  return failed.length ? t('Breach over: {installed} installed, {failed} failed.', names) : t('Breach over: {installed} installed.', names)
 }
 
 /** Looks at the breach being followed: counts off new picks, plans again after a pick off the route, and notices the end. */
@@ -183,7 +185,7 @@ async function look(): Promise<void> {
   if (!seen || seen.sight === 'other') {
     gone++
     // before the first pick the breach can be closed and opened again for a new matrix, so one look without it is enough
-    if (gone >= GONE || !played.length) watch(played.length ? 'The breach screen closed.' : watchingWords())
+    if (gone >= GONE || !played.length) watch(played.length ? t('The breach screen closed.') : watchingWords())
     return
   }
   gone = 0
@@ -200,7 +202,8 @@ async function look(): Promise<void> {
   }
   if (seen.step) {
     const [done, picks] = [seen.route.done ?? 0, seen.route.steps.length]
-    say(seen.step === 'replanned' ? `Off the route after ${played.length} ${played.length === 1 ? 'pick' : 'picks'}. The rest is planned again.` : done >= picks ? `All ${picks} picks made.` : `Pick ${done} seen. Pick ${done + 1} of ${picks} is next.`)
+    const off = played.length === 1 ? t('Off the route after 1 pick. The rest is planned again.') : t('Off the route after {n} picks. The rest is planned again.', { n: played.length })
+    say(seen.step === 'replanned' ? off : done >= picks ? t('All {n} picks made.', { n: picks }) : t('Pick {n} seen. Pick {next} of {total} is next.', { n: done, next: done + 1, total: picks }))
   }
 }
 
@@ -220,7 +223,7 @@ async function settle(): Promise<void> {
   const found = made?.learnt
   if (found?.kind === 'narrowed') {
     await learnt(found.rule)
-    watch(`${words} It also told something about the wrong-pick rule: see the Plan panel.`)
+    watch(t('{words} It also told something about the wrong-pick rule: see the Plan panel.', { words }))
   } else {
     watch(words)
   }
@@ -245,7 +248,7 @@ async function tick(): Promise<void> {
       await read(false)
     }
   } catch (e) {
-    say(`The shared picture could not be read: ${e instanceof Error ? e.message : String(e)}`)
+    say(t('The shared picture could not be read: {why}', { why: e instanceof Error ? e.message : String(e) }))
   } finally {
     busy = false
   }
@@ -278,12 +281,12 @@ function tap(into: Sharing): void {
 function showSharing(): void {
   const on = sharing !== null
   $<HTMLElement>('live').hidden = !on
-  $<HTMLButtonElement>('share').textContent = on ? 'Read now' : 'Share the game screen'
+  $<HTMLButtonElement>('share').textContent = on ? t('Read now') : t('Share the game screen')
   // a shared screen shows the floating window too, so it must not sit on what is to be read
-  const aside = isFloating() && sharing?.surface === 'screen' ? ' Keep the floating window off the code matrix.' : ''
-  $<HTMLElement>('live-what').textContent = on ? `Sharing a ${sharing?.surface}. Nothing leaves this page: the picture is read on your computer.${aside}` : ''
+  const aside = isFloating() && sharing?.surface === 'screen' ? ` ${t('Keep the floating window off the code matrix.')}` : ''
+  $<HTMLElement>('live-what').textContent = on ? `${t(`Sharing a ${sharing?.surface}. Nothing leaves this page: the picture is read on your computer.`)}${aside}` : ''
   $<HTMLButtonElement>('live-float').hidden = !on || !canFloat
-  $<HTMLButtonElement>('live-float').textContent = isFloating() ? 'Close the floating route' : 'Float the route over the game'
+  $<HTMLButtonElement>('live-float').textContent = isFloating() ? t('Close the floating route') : t('Float the route over the game')
 }
 
 function stop(): void {
@@ -348,7 +351,7 @@ export function startLive(): void {
   button.hidden = false
   $<HTMLElement>('way-share').hidden = false
   button.addEventListener('click', () => {
-    if (sharing) void read(true).catch(e => say(`The shared picture could not be read: ${e instanceof Error ? e.message : String(e)}`))
+    if (sharing) void read(true).catch(e => say(t('The shared picture could not be read: {why}', { why: e instanceof Error ? e.message : String(e) })))
     else void share()
   })
   $<HTMLButtonElement>('live-stop').addEventListener('click', stop)

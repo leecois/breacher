@@ -55,6 +55,8 @@ struct Settings {
     tray: bool,
     /// Watch the game and read each breach as it opens, without the hotkey.
     auto: bool,
+    /// The language the window speaks, for the few words the shell itself shows. `None` = English.
+    language: Option<String>,
     /// The version that ran last: the first start of a new one shows its window even when asked to start hidden.
     last_version: Option<String>,
 }
@@ -74,6 +76,7 @@ impl Default for Settings {
             updates: true,
             tray: true,
             auto: false,
+            language: None,
             last_version: None,
         }
     }
@@ -931,6 +934,20 @@ fn set_target(shell: State<Shell>, target: Target) -> ShellStatus {
     status_of(&shell)
 }
 
+/// The window says which language it speaks, so that the tray menu speaks it too.
+#[tauri::command]
+fn set_language(app: AppHandle, shell: State<Shell>, language: String) {
+    let language = Some(language).filter(|l| l != "en");
+    if shell.settings.lock().unwrap().language == language {
+        return;
+    }
+    shell.settings.lock().unwrap().language = language;
+    save(&shell);
+    if let (Some(tray), Ok(menu)) = (app.tray_by_id("breacher"), tray_menu(&app)) {
+        let _ = tray.set_menu(Some(menu));
+    }
+}
+
 #[tauri::command]
 fn set_auto(shell: State<Shell>, enabled: bool) -> ShellStatus {
     log(
@@ -1101,12 +1118,18 @@ fn show_main(app: &AppHandle) {
 }
 
 /// Puts the program in the tray: a click brings the window back, the menu can end the program.
+/// The tray menu in the player's language.
+fn tray_menu(app: &AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
+    let language = app.state::<Shell>().settings.lock().unwrap().language.clone();
+    let (open, quit) = match language.as_deref() {
+        Some("vi") => ("Mở Breacher", "Thoát Breacher"),
+        _ => ("Open Breacher", "Quit Breacher"),
+    };
+    MenuBuilder::new(app).text("open", open).separator().text("quit", quit).build()
+}
+
 fn add_tray(app: &AppHandle) -> tauri::Result<()> {
-    let menu = MenuBuilder::new(app)
-        .text("open", "Open Breacher")
-        .separator()
-        .text("quit", "Quit Breacher")
-        .build()?;
+    let menu = tray_menu(app)?;
     let mut tray = TrayIconBuilder::with_id("breacher")
         .tooltip("Breacher")
         .menu(&menu)
@@ -1320,8 +1343,12 @@ pub fn run() {
                                 format!("on {on:?}, off again {off:?}")
                             };
                             let stack = overlay_stack(&handle);
+                            // the tray menu is rebuilt in another language and back
+                            set_language(handle.clone(), handle.state(), "vi".into());
+                            let spoken = handle.state::<Shell>().settings.lock().unwrap().language.clone();
+                            set_language(handle.clone(), handle.state(), "en".into());
                             format!(
-                                "selftest: {summary} | frame {}x{} | {:.1} ms | hotkey: {} | windows: main={} overlay={} | capture permission: {:?} | frame url: {} | update: {update} | version the system reports for this program: {own} | report: {report} | start at sign-in: {autostart} | rule check: {check} | capture targets: {targets} | overlay: {stack} | watch: {watching}",
+                                "selftest: {summary} | frame {}x{} | {:.1} ms | hotkey: {} | windows: main={} overlay={} | capture permission: {:?} | frame url: {} | update: {update} | version the system reports for this program: {own} | report: {report} | start at sign-in: {autostart} | rule check: {check} | capture targets: {targets} | overlay: {stack} | watch: {watching} | tray language: {spoken:?} then English",
                                 meta.width,
                                 meta.height,
                                 started.elapsed().as_secs_f32() * 1e3,
@@ -1358,7 +1385,7 @@ pub fn run() {
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![status, capture, allow_capture, set_priority, set_matcher, set_checking, set_overlay, dismiss_overlay, shown_route, list_targets, set_target, set_auto, set_updates, set_tray, set_autostart, report::save_report, watch_folder, pause_hotkey, set_hotkey, last_frame_url,
+        .invoke_handler(tauri::generate_handler![status, capture, allow_capture, set_priority, set_matcher, set_checking, set_overlay, dismiss_overlay, shown_route, list_targets, set_target, set_auto, set_language, set_updates, set_tray, set_autostart, report::save_report, watch_folder, pause_hotkey, set_hotkey, last_frame_url,
             update::check_update,
             update::install_update,
             update::open_downloads])

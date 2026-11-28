@@ -15,9 +15,16 @@
   --ink: #05070a;
 
   --ui: 'Rajdhani', 'Segoe UI', system-ui, sans-serif;
+  --code: 'Rajdhani', 'Segoe UI', system-ui, sans-serif;
   --display: 'Chakra Petch', 'Rajdhani', 'Segoe UI', sans-serif;
 
   --cut: 12px;
+}
+
+/* the reading face has no Vietnamese letters, so Vietnamese is set in the display face, a size down; codes keep theirs */
+html[lang='vi'] {
+  --ui: 'Chakra Petch', 'Segoe UI', system-ui, sans-serif;
+  font-size: 93%;
 }
 
 * {
@@ -679,7 +686,7 @@ body.floating {
 .sheet-codes text {
   fill: #b9c66a;
   opacity: 0.5;
-  font: 700 31px var(--ui);
+  font: 700 31px var(--code);
   letter-spacing: 0.02em;
 }
 
@@ -791,7 +798,7 @@ body.floating {
 }
 
 .slot .code {
-  font: 700 1.65rem / 1 var(--ui);
+  font: 700 1.65rem / 1 var(--code);
   letter-spacing: 0.02em;
 }
 
@@ -860,7 +867,7 @@ body.floating {
   display: flex;
   flex-wrap: wrap;
   gap: 0.15rem 0.5rem;
-  font: 700 1.2rem / 1.15 var(--ui);
+  font: 700 1.2rem / 1.15 var(--code);
   letter-spacing: 0.03em;
 }
 
@@ -1047,6 +1054,24 @@ select:hover {
 .statusbar i {
   font-style: normal;
   color: var(--dim);
+}
+
+.statusbar select {
+  width: auto;
+  margin-left: 1.4rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--cyan);
+  font: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+}
+
+.statusbar select option {
+  background: var(--panel);
+  color: var(--text);
+  text-transform: none;
 }
 
 .statusbar button {

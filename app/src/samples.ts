@@ -1,4 +1,5 @@
 import { $ } from './dom'
+import { t } from './i18n'
 import { readBlob } from './session'
 
 export async function listSamples(): Promise<void> {
@@ -10,7 +11,7 @@ export async function listSamples(): Promise<void> {
     for (const s of names) {
       const b = document.createElement('button')
       b.className = 'btn small'
-      b.textContent = s.label
+      b.textContent = t(s.label)
       b.addEventListener('click', () => void loadSample(s.file, s.label))
       box.append(b)
     }

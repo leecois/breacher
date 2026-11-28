@@ -11,6 +11,7 @@ import { warm } from './core'
 import { desktop } from './desktop'
 import { $ } from './dom'
 import { drawGhost } from './draw'
+import { languageChoice, t, translatePage } from './i18n'
 import { startLive } from './live'
 import { showVersions, status } from './render'
 import { listSamples, loadSample } from './samples'
@@ -19,10 +20,12 @@ import { state } from './state'
 
 async function start(): Promise<void> {
   warm()
+  translatePage()
+  $<HTMLElement>('versions').after(languageChoice())
   wireInput()
   wireSettings()
   drawGhost($<SVGSVGElement>('ghost'))
-  status([['Status', 'No frame yet']])
+  status([['Status', t('No frame yet')]])
   showVersions()
   void listSamples()
   await startShell()

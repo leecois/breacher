@@ -1,6 +1,7 @@
 // The route in a small window that stays above the others, for a page that cannot draw over the game.
 import { routeCaption } from './caption'
 import { drawSheet } from './draw'
+import { t } from './i18n'
 import { shownRoute, state } from './state'
 
 interface Floater {
@@ -57,7 +58,7 @@ export async function openFloat(closed: () => void): Promise<void> {
       /* a sheet the page may not read is left out */
     }
   }
-  doc.title = 'Breacher route'
+  doc.title = t('Breacher route')
   doc.body.className = 'floating'
   const line = doc.createElement('p')
   line.id = 'float-line'

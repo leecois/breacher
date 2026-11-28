@@ -1,5 +1,6 @@
 import { desktop, type AnswerEvent, type Desktop, type ShellStatus, type Targets, type UpdateInfo } from './desktop'
 import { $ } from './dom'
+import { lang, t, tWhole } from './i18n'
 import { showVersions, status as say } from './render'
 import { attachImage, followed, learnt, show } from './session'
 import { remembered, state } from './state'
@@ -29,14 +30,14 @@ function showTargets(chosen: Target): void {
     return g
   }
   const windows = targets.windows.map(w => option({ kind: 'window', value: w.title }, shorten(w.app && !w.title.toLowerCase().includes(w.app.toLowerCase()) ? `${w.title} (${w.app})` : w.title)))
-  if (chosen.kind === 'window' && !targets.windows.some(w => w.title === chosen.value)) windows.unshift(option(chosen, `${shorten(chosen.value, 52)} (not open)`))
-  const displays = targets.displays.map((d, i) => option({ kind: 'display', value: i }, `Display ${i + 1}, ${d.width} × ${d.height}${d.primary ? ', main' : ''}`))
-  if (chosen.kind === 'display' && chosen.value >= targets.displays.length) displays.push(option(chosen, `Display ${chosen.value + 1} (not connected)`))
-  select.replaceChildren(option({ kind: 'auto' }, 'The game, found by its name'), ...(windows.length ? [group('A window', windows)] : []), ...(displays.length ? [group('A whole display', displays)] : []))
+  if (chosen.kind === 'window' && !targets.windows.some(w => w.title === chosen.value)) windows.unshift(option(chosen, t('{title} (not open)', { title: shorten(chosen.value, 52) })))
+  const displays = targets.displays.map((d, i) => option({ kind: 'display', value: i }, t(d.primary ? 'Display {n}, {w} × {h}, main' : 'Display {n}, {w} × {h}', { n: i + 1, w: d.width, h: d.height })))
+  if (chosen.kind === 'display' && chosen.value >= targets.displays.length) displays.push(option(chosen, t('Display {n} (not connected)', { n: chosen.value + 1 })))
+  select.replaceChildren(option({ kind: 'auto' }, t('The game, found by its name')), ...(windows.length ? [group(t('A window'), windows)] : []), ...(displays.length ? [group(t('A whole display'), displays)] : []))
   select.value = JSON.stringify(chosen)
   const note = $<HTMLElement>('target-note')
   note.hidden = chosen.kind !== 'display'
-  note.textContent = 'A whole display is captured once, so the route stays up for a fixed time. Only a window can be followed pick by pick.'
+  note.textContent = t('A whole display is captured once, so the route stays up for a fixed time. Only a window can be followed pick by pick.')
 }
 
 function onAnswer(a: AnswerEvent): void {
@@ -56,17 +57,17 @@ function showShell(status: ShellStatus, problem?: string): void {
   capture.classList.add('btn')
   capture.classList.toggle('primary', status.capture_ready)
   capture.disabled = !status.capture_ready
-  capture.title = status.capture_ready && status.hotkey ? `Same as ${status.hotkey}` : ''
+  capture.title = status.capture_ready && status.hotkey ? t('Same as {keys}', { keys: status.hotkey }) : ''
   $<HTMLElement>('hotkey').textContent = status.hotkey
   $<HTMLElement>('way-capture').hidden = !status.capture_ready || !status.hotkey
   const note = $<HTMLElement>('shell-note')
-  const text = problem ?? status.capture_note
+  const text = tWhole(problem ?? status.capture_note)
   note.hidden = !text
   note.textContent = text
   $<HTMLButtonElement>('allow').hidden = status.capture_ready
   $<HTMLElement>('hotkey-set').toggleAttribute('data-recording', recording)
-  $<HTMLElement>('hotkey-now').textContent = recording ? 'Press the new keys' : status.hotkey || 'None'
-  $<HTMLButtonElement>('hotkey-change').textContent = recording ? 'Cancel' : 'Change'
+  $<HTMLElement>('hotkey-now').textContent = recording ? t('Press the new keys') : status.hotkey || t('None')
+  $<HTMLButtonElement>('hotkey-change').textContent = recording ? t('Cancel') : t('Change')
   $<HTMLInputElement>('overlay-on').checked = status.overlay
   $<HTMLInputElement>('updates-on').checked = status.updates
   showTargets(status.target)
@@ -83,12 +84,12 @@ function showShell(status: ShellStatus, problem?: string): void {
     $<HTMLSelectElement>('matcher').value = status.matcher ?? ''
   }
   const watching = Boolean(status.watch_dir)
-  $<HTMLElement>('watch-note').textContent = watching ? `Watching ${status.watch_dir}` : ''
-  $<HTMLButtonElement>('watch').textContent = watching ? 'Stop watching' : 'Watch a screenshot folder'
+  $<HTMLElement>('watch-note').textContent = watching ? t('Watching {dir}', { dir: status.watch_dir ?? '' }) : ''
+  $<HTMLButtonElement>('watch').textContent = watching ? t('Stop watching') : t('Watch a screenshot folder')
   $<HTMLButtonElement>('watch').dataset.watching = String(watching)
   $<HTMLElement>('way-watch').hidden = !watching
   // the log's location, for bug reports
-  $<HTMLElement>('shell').title = `Log: ${status.log_path}`
+  $<HTMLElement>('shell').title = t('Log: {path}', { path: status.log_path })
 }
 
 /** The pressed combination in the form the shell parses, or null while only modifiers are down. */
@@ -142,19 +143,20 @@ function showUpdate(shell: Desktop, update: UpdateInfo, failure?: string): void 
   $<HTMLElement>('update').hidden = false
   go.hidden = false
   go.disabled = false
-  go.textContent = install ? 'Update and restart' : 'Open the download page'
+  const version = update.version
+  go.textContent = install ? t('Update and restart') : t('Open the download page')
   text.textContent = failure
-    ? `Breacher ${update.version} did not install: ${failure}`
+    ? t('Breacher {version} did not install: {why}', { version, why: tWhole(failure) })
     : update.installable
-      ? `Breacher ${update.version} is out.`
-      : `Breacher ${update.version} is out. This copy runs without installing, so it cannot replace itself.`
+      ? t('Breacher {version} is out.', { version })
+      : t('Breacher {version} is out. This copy runs without installing, so it cannot replace itself.', { version })
   go.onclick = async () => {
     if (!install) return void shell.openDownloads()
     go.disabled = true
-    text.textContent = `Downloading Breacher ${update.version}`
+    text.textContent = t('Downloading Breacher {version}', { version })
     try {
       await shell.installUpdate(percent => {
-        text.textContent = percent < 100 ? `Downloading Breacher ${update.version}: ${percent}%` : `Installing Breacher ${update.version}`
+        text.textContent = percent < 100 ? t('Downloading Breacher {version}: {percent}%', { version, percent }) : t('Installing Breacher {version}', { version })
       })
     } catch (err) {
       showUpdate(shell, update, String(err))
@@ -175,6 +177,7 @@ export async function startShell(): Promise<void> {
     ),
   )
   wireHotkey(shell)
+  shell.setLanguage(lang)
   const lookForUpdate = (): void => {
     void shell
       .checkUpdate()
@@ -191,7 +194,7 @@ export async function startShell(): Promise<void> {
   $<HTMLButtonElement>('capture').addEventListener('click', () => void shell.capture())
   $<HTMLButtonElement>('allow').addEventListener('click', async () => {
     const status = await shell.allowCapture()
-    showShell(status, status.capture_ready ? undefined : 'Allow Breacher under Screen Recording in the system privacy settings, then start it again.')
+    showShell(status, status.capture_ready ? undefined : t('Allow Breacher under Screen Recording in the system privacy settings, then start it again.'))
   })
   $<HTMLInputElement>('overlay-on').addEventListener('change', async e => showShell(await shell.setOverlay((e.target as HTMLInputElement).checked)))
   const target = $<HTMLSelectElement>('target')
@@ -214,7 +217,7 @@ export async function startShell(): Promise<void> {
     try {
       showShell(await shell.setAutostart((e.target as HTMLInputElement).checked))
     } catch (err) {
-      showShell(await shell.status(), `Starting at sign-in could not be changed: ${String(err)}`)
+      showShell(await shell.status(), t('Starting at sign-in could not be changed: {why}', { why: String(err) }))
     }
   })
   $<HTMLButtonElement>('report').addEventListener('click', async () => {
@@ -234,7 +237,7 @@ export async function startShell(): Promise<void> {
       try {
         showShell(await shell.watchFolder(dir))
       } catch (err) {
-        $<HTMLElement>('watch-note').textContent = String(err)
+        $<HTMLElement>('watch-note').textContent = tWhole(String(err))
       }
     }
   })
@@ -264,6 +267,6 @@ export function previewShell(): void {
   $<HTMLInputElement>('tray-on').checked = true
   $<HTMLElement>('autostart-set').hidden = false
   $<HTMLButtonElement>('report').hidden = false
-  $<HTMLElement>('watch-note').textContent = 'Watching C:\\Users\\you\\Pictures\\Screenshots'
-  $<HTMLButtonElement>('watch').textContent = 'Stop watching'
+  $<HTMLElement>('watch-note').textContent = t('Watching {dir}', { dir: 'C:\\Users\\you\\Pictures\\Screenshots' })
+  $<HTMLButtonElement>('watch').textContent = t('Stop watching')
 }
