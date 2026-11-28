@@ -53,6 +53,11 @@ There are three ways to give Breacher a screen:
    screenshots; new files are read as they appear. Needs no capture permission.
 3. **Drop or paste** a screenshot into the window.
 
+**Read each breach as it opens** does away with the hotkey: Breacher watches the game while you
+are in it and draws the route as soon as a breach is on screen. It is off until you switch it on,
+because watching takes a little processor time, and it is offered where watching goes unseen
+(Windows 11).
+
 **Capture** in the window chooses what the hotkey captures: the game, found by its name, a window
 picked from the list of those that are open, or a whole display. Pick the window when the game runs
 under another name, as it does through a streaming service. A whole display is captured once, so
@@ -66,6 +71,8 @@ leave the game to find out.
 Closing the window keeps Breacher in the tray, so the hotkey goes on working while you play. Click
 the tray icon to bring the window back, or choose Quit in its menu. "Stay in the tray when closed"
 turns this off, and "Start when you sign in" puts Breacher in the tray every time you log on.
+
+The window speaks English and Vietnamese; the list at the bottom switches between them.
 
 The bottom of the window shows which Breacher is running and, after a capture of the game, which
 version of the game it looked at. **Save a report** next to them writes the last frame, what was
@@ -105,8 +112,10 @@ matching automata, and is checked against exhaustive enumeration in the tests.
 One game rule is not confirmed: what happens to a daemon's progress when a pick does not continue its
 sequence. Three candidate rules are implemented. By default the planner returns a route that works
 under all three, and separately offers a riskier one when plain substring matching would upload more.
-**Check the rule with a breach** in the app settles it: Breacher draws a route chosen to tell the
-rules apart, you play it and say what uploaded. [docs/RULE-CHECK.md](docs/RULE-CHECK.md) has the
+Breacher finds the rule out by watching: when a breach it follows is over, it reads what ended up
+in the buffer and which daemons the game installed, and drops every rule that predicts something
+else. **Check the rule with a breach** in the app speeds that up: Breacher draws a route chosen to
+tell the rules apart, and you play it. [docs/RULE-CHECK.md](docs/RULE-CHECK.md) has the
 details.
 
 ## Accuracy and speed
