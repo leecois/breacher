@@ -2,10 +2,10 @@
 #![allow(clippy::missing_safety_doc)]
 use breach_core::api::{self, Response};
 use breach_core::follow::Followed;
-use breach_core::glyph::Templates;
+use breach_core::glyph::{Gate, Templates};
 use breach_core::image::{Frame, PixelFormat};
 use breach_core::plan::{plan, rule_check, PlanOptions};
-use breach_core::reader::{ReadOptions, Reading};
+use breach_core::reader::{buffer_codes, ReadOptions, Reading};
 use std::alloc::{alloc, dealloc, Layout};
 use std::sync::OnceLock;
 
@@ -169,4 +169,26 @@ pub unsafe extern "C" fn bp_follow(
         "check": followed.check,
     })
     .to_string())
+}
+
+/// Reads what ended up in the buffer from a frame of the screen that follows a breach, and holds it against the rules still in play. Safety: as for `bp_follow`.
+#[no_mangle]
+pub unsafe extern "C" fn bp_learn(
+    rgba: *const u8,
+    width: usize,
+    height: usize,
+    state: *const u8,
+    state_len: usize,
+) -> *mut u8 {
+    let bytes = unsafe { std::slice::from_raw_parts(state, state_len) };
+    let Following { followed, matcher, .. } = match serde_json::from_slice(bytes) {
+        Ok(f) => f,
+        Err(e) => return error(format!("bad state: {e}")),
+    };
+    let data = unsafe { std::slice::from_raw_parts(rgba, width * height * 4) };
+    let frame = Frame::new(width, height, PixelFormat::Rgba8, data);
+    let templates = TEMPLATES.get_or_init(Templates::builtin);
+    let codes = buffer_codes(&frame, &followed.reading, templates, &Gate::default());
+    let learnt = codes.as_ref().and_then(|codes| followed.learn(codes, matcher));
+    out(serde_json::json!({ "status": "ok", "codes": codes, "learnt": learnt }).to_string())
 }

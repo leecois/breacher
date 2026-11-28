@@ -7,6 +7,7 @@ mod measure;
 mod region;
 mod segment;
 mod sequences;
+mod slots;
 
 use crate::clock::Stopwatch;
 use crate::glyph::{self, Feat, Gate, GroupLabels, Templates, NCODES, UNKNOWN};
@@ -17,6 +18,7 @@ use lattice::{find_lattice, Lattice, CELL_HH, CELL_HW};
 use segment::segment;
 use sequences::read_sequences;
 use serde::{Deserialize, Serialize};
+pub use slots::buffer_codes;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

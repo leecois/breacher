@@ -4,7 +4,7 @@ use crate::image::Frame;
 use crate::plan::{plan_from, PlanOptions, Priority, Route};
 use crate::progress::{self, advance, Fate, Look as Seen};
 use crate::reader::Reading;
-use crate::solver::Matcher;
+use crate::solver::{uploaded_by, Matcher};
 use serde::{Deserialize, Serialize};
 
 /// The breach being followed: what was read, the route that is drawn and the picks seen so far.
@@ -50,6 +50,18 @@ pub enum Sight {
     Over,
 }
 
+/// What a finished breach showed about the wrong-pick rule.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "rule", rename_all = "snake_case")]
+pub enum Learnt {
+    /// Every rule still in play predicts what the game did.
+    Nothing,
+    /// Only the rules this stands for predict it: one is ruled out, or the rule is settled.
+    Narrowed(Matcher),
+    /// No rule still in play predicts it: something was misread, so nothing is concluded.
+    Contradicted,
+}
+
 /// What one look added to what was known.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Looked {
@@ -90,6 +102,11 @@ impl Followed {
             }
         }
         news
+    }
+
+    /// Whether the game has settled every daemon, which ends the breach.
+    pub fn over(&self) -> bool {
+        self.fates.len() == self.reading.sequences.len() && !self.fates.contains(&Fate::Pending)
     }
 
     /// The daemons the game installed and those it failed, counted from one, once any is settled.
@@ -153,6 +170,35 @@ impl Followed {
         } else {
             self.settle(priority, matcher)
         }
+    }
+
+    /// Holds what the game installed against what each rule still in play predicts for the codes that ended up in the buffer. `None` while a daemon is unsettled, or when the codes do not start with the picks that were seen.
+    pub fn learn(&self, codes: &[u8], known: Option<Matcher>) -> Option<Learnt> {
+        let sequences = &self.reading.sequences;
+        if codes.is_empty() || codes.len() > 16 || !self.over() {
+            return None;
+        }
+        let seen: Option<Vec<u8>> =
+            self.played.iter().map(|&c| self.reading.matrix.get(c).copied()).collect();
+        if !codes.starts_with(&seen?) {
+            return None;
+        }
+        let installed = self
+            .fates
+            .iter()
+            .enumerate()
+            .fold(0u32, |mask, (i, fate)| mask | ((*fate == Fate::Installed) as u32) << i);
+        let in_play = known.map_or([true; 3], Matcher::rules);
+        let single = [Matcher::Substring, Matcher::Retest, Matcher::Strict];
+        let mut fits = [false; 3];
+        for k in 0..3 {
+            fits[k] = in_play[k] && uploaded_by(sequences, codes, single[k]) == installed;
+        }
+        Some(if fits == in_play {
+            Learnt::Nothing
+        } else {
+            Matcher::of(fits).map_or(Learnt::Contradicted, Learnt::Narrowed)
+        })
     }
 
     /// Reads one frame of the same screen: takes in the daemons the game has settled and the picks it shows.
@@ -276,6 +322,47 @@ mod tests {
         // a bar hidden for a moment does not unsettle the daemon
         assert_eq!(f.settled(&[Fate::Pending]), vec![]);
         assert_eq!(f.outcome(), Some((vec![1], vec![])));
+    }
+
+    #[test]
+    fn a_finished_breach_tells_the_rules_apart() {
+        // A A B against the codes A A A B: only a rule that keeps overlapping codes uploads it
+        let mut f = followed();
+        f.reading.matrix = vec![0, 0, 1, 0, 0, 1, 0, 0, 1];
+        f.reading.sequences = vec![vec![0, 0, 1]];
+        let codes = [0, 0, 0, 1];
+        assert_eq!(
+            f.learn(&codes, None),
+            None,
+            "nothing is learnt before the game has settled the daemon"
+        );
+        f.fates = vec![Fate::Installed];
+        assert_eq!(f.learn(&codes, None), Some(Learnt::Narrowed(Matcher::Substring)));
+        f.fates = vec![Fate::Failed];
+        assert_eq!(f.learn(&codes, None), Some(Learnt::Narrowed(Matcher::NotSubstring)));
+        // what is already known is not news, and a pair that is down to two can be settled
+        assert_eq!(f.learn(&codes, Some(Matcher::NotSubstring)), Some(Learnt::Nothing));
+        assert_eq!(
+            f.learn(&codes, Some(Matcher::NotRetest)),
+            Some(Learnt::Narrowed(Matcher::Strict))
+        );
+        assert_eq!(f.learn(&codes, Some(Matcher::Substring)), Some(Learnt::Contradicted));
+        // codes every rule reads alike tell nothing
+        f.fates = vec![Fate::Installed];
+        assert_eq!(f.learn(&[0, 0, 1], None), Some(Learnt::Nothing));
+        // the codes have to start with the picks that were seen
+        f.played = vec![2];
+        assert_eq!(f.learn(&[0, 0, 1], None), None);
+        f.played = vec![0, 1];
+        assert_eq!(f.learn(&[0, 0, 1], None), Some(Learnt::Nothing));
+        assert_eq!(f.learn(&[], None), None);
+    }
+
+    #[test]
+    fn what_was_learnt_reads_as_plain_json() {
+        let narrowed = serde_json::to_string(&Learnt::Narrowed(Matcher::NotStrict)).unwrap();
+        assert_eq!(narrowed, r#"{"kind":"narrowed","rule":"not_strict"}"#);
+        assert_eq!(serde_json::to_string(&Learnt::Nothing).unwrap(), r#"{"kind":"nothing"}"#);
     }
 
     #[test]

@@ -641,6 +641,27 @@ pub fn verify(p: &Puzzle, path: &[u16], matcher: Matcher) -> Result<Replay, Stri
     Ok(Replay { uploaded, reward, uploaded_at })
 }
 
+/// The daemons a run of codes in the buffer uploads under a rule, as a bit mask; the cells the codes came from play no part.
+pub fn uploaded_by(sequences: &[Vec<u8>], codes: &[u8], matcher: Matcher) -> u32 {
+    let kinds = matcher.kinds();
+    let mut uploaded = 0u32;
+    for (d, seq) in sequences.iter().enumerate().take(32) {
+        if seq.is_empty() || seq.len() > u8::MAX as usize {
+            continue;
+        }
+        let done = kinds.iter().all(|&kind| {
+            let table = unit_table(seq, kind);
+            let mut state = 0usize;
+            codes.iter().any(|&code| {
+                state = table[state].get(code as usize).copied().unwrap_or(0) as usize;
+                state == seq.len()
+            })
+        });
+        uploaded |= (done as u32) << d;
+    }
+    uploaded
+}
+
 /// A route whose outcome differs between the matching rules, so following it in game tells them apart.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Probe {
@@ -1084,6 +1105,46 @@ mod tests {
         // A A B fed A A A A A B: strict catches it and re-test does not, so neither rule contains the other
         assert!(feed(&[0, 0, 1], Kind::Strict, &[0, 0, 0, 0, 0, 1]));
         assert!(!feed(&[0, 0, 1], Kind::Retest, &[0, 0, 0, 0, 0, 1]));
+    }
+
+    #[test]
+    fn codes_alone_upload_what_their_route_uploads() {
+        let mut rng = Rng(0x5EED_C0DE_5EED_C0DE);
+        let all = [
+            Matcher::Substring,
+            Matcher::Retest,
+            Matcher::Strict,
+            Matcher::Unanimous,
+            Matcher::NotSubstring,
+            Matcher::NotRetest,
+            Matcher::NotStrict,
+        ];
+        let mut uploads = 0;
+        for _ in 0..300 {
+            let n = 4 + rng.below(2);
+            let cells: Vec<u8> = (0..n * n).map(|_| rng.below(3) as u8).collect();
+            let seqs: Vec<Vec<u8>> = (0..2 + rng.below(2))
+                .map(|_| (0..2 + rng.below(3)).map(|_| rng.below(3) as u8).collect())
+                .collect();
+            let p = Puzzle::square(n, cells.clone(), seqs.clone(), 5 + rng.below(4));
+            for m in all {
+                let path = solve(&p, m).path;
+                let codes: Vec<u8> = path.iter().map(|&c| cells[c as usize]).collect();
+                let replay = verify(&p, &path, m).unwrap();
+                assert_eq!(
+                    uploaded_by(&seqs, &codes, m),
+                    replay.uploaded,
+                    "{m:?} {codes:?} {seqs:?}"
+                );
+                // and the same codes under another rule are judged by that rule
+                for other in all {
+                    let there = verify(&p, &path, other).unwrap().uploaded;
+                    assert_eq!(uploaded_by(&seqs, &codes, other), there, "{other:?} {codes:?}");
+                }
+                uploads += replay.uploaded.count_ones();
+            }
+        }
+        assert!(uploads > 1000, "{uploads}");
     }
 
     #[test]

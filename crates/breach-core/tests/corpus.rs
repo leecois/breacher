@@ -6,7 +6,7 @@ use breach_core::image::{Frame, PixelFormat};
 use breach_core::plan::{plan, PlanOptions, Priority};
 use breach_core::progress::{advance, look, Fate, Mark};
 use breach_core::reader::Geometry;
-use breach_core::reader::{read, ReadOptions, Reading, Stage};
+use breach_core::reader::{buffer_codes, read, ReadOptions, Reading, Stage};
 use breach_core::solver::{self, Matcher};
 use image::{imageops, RgbImage};
 use std::path::PathBuf;
@@ -301,6 +301,79 @@ fn a_played_route_is_followed_pick_by_pick() {
             assert_eq!(played, route[..=k], "{name}: pick {}", k + 1);
         }
     }
+}
+
+/// Puts the code of one sequence position into a buffer slot, in a box as the game draws one.
+fn play_into_slot(img: &mut RgbImage, g: &Geometry, row: f32, from: usize, slot: usize) {
+    let q = g.seq_pitch_x;
+    let (hw, hh) = ((0.34 * q) as i64, (0.28 * q) as i64);
+    let (sx, sy) = ((g.seq_x0 + from as f32 * q) as i64, row as i64);
+    let (dx, dy) = ((g.seq_x0 + slot as f32 * q) as i64, g.buffer_y as i64);
+    let source = img.clone();
+    let ground = *source.get_pixel((dx - (0.5 * q) as i64) as u32, dy as u32);
+    fill(img, dx as f32, dy as f32, 0.44 * q, 0.44 * q, ground);
+    for y in -hh..=hh {
+        for x in -hw..=hw {
+            img.put_pixel(
+                (dx + x) as u32,
+                (dy + y) as u32,
+                *source.get_pixel((sx + x) as u32, (sy + y) as u32),
+            );
+        }
+    }
+    let side = 0.4 * q;
+    for t in 0..2 {
+        let s = side - t as f32;
+        fill(img, dx as f32, dy as f32 - s, s, 0.0, CODE);
+        fill(img, dx as f32, dy as f32 + s, s, 0.0, CODE);
+        fill(img, dx as f32 - s, dy as f32, 0.0, s, CODE);
+        fill(img, dx as f32 + s, dy as f32, 0.0, s, CODE);
+    }
+}
+
+/// The codes standing in the buffer are read back, and a buffer that cannot be read is not guessed at.
+#[test]
+fn the_codes_in_the_buffer_are_read_back() {
+    let templates = Templates::builtin();
+    let codes_in = |img: &RgbImage, reading: &Reading| {
+        let (w, h) = (img.width() as usize, img.height() as usize);
+        let frame = Frame::new(w, h, PixelFormat::Rgb8, img.as_raw());
+        buffer_codes(&frame, reading, &templates, &breach_core::glyph::Gate::default())
+    };
+    let mut read_back = 0;
+    for (name, img, label) in corpus() {
+        if label.negative {
+            continue;
+        }
+        let reading = run(&img).unwrap();
+        let g = &reading.geometry;
+        assert_eq!(codes_in(&img, &reading), Some(vec![]), "{name}: an untouched buffer is empty");
+        // the first sequences are played into the buffer one after the other, as far as it has room
+        let mut played = img.clone();
+        let mut want: Vec<u8> = Vec::new();
+        'fill: for (i, seq) in reading.sequences.iter().enumerate() {
+            for (j, &code) in seq.iter().enumerate() {
+                if want.len() == reading.buffer {
+                    break 'fill;
+                }
+                play_into_slot(&mut played, g, g.seq_rows[i], j, want.len());
+                want.push(code);
+            }
+        }
+        assert_eq!(codes_in(&played, &reading), Some(want.clone()), "{name}");
+        read_back += want.len();
+        // a slot that flashes is neither a code nor empty: nothing is read
+        let mut flashing = played.clone();
+        mark_slot(&mut flashing, g, want.len() - 1, Mark::Flash);
+        assert_eq!(codes_in(&flashing, &reading), None, "{name}: a flashing slot");
+        // nor is a code that stands after an empty slot
+        if want.len() + 1 < reading.buffer {
+            let mut gap = played.clone();
+            play_into_slot(&mut gap, g, g.seq_rows[0], 0, want.len() + 1);
+            assert_eq!(codes_in(&gap, &reading), None, "{name}: a code after a gap");
+        }
+    }
+    assert!(read_back > 30, "{read_back}");
 }
 
 /// A breach is followed from frames alone: a pick on the route, one off it, and the bars that end it.
