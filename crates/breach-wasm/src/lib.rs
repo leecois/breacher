@@ -5,7 +5,7 @@ use breach_core::follow::Followed;
 use breach_core::glyph::{Gate, Templates};
 use breach_core::image::{Frame, PixelFormat};
 use breach_core::plan::{plan, rule_check, PlanOptions};
-use breach_core::reader::{buffer_codes, ReadOptions, Reading};
+use breach_core::reader::{ReadOptions, Reading};
 use std::alloc::{alloc, dealloc, Layout};
 use std::sync::OnceLock;
 
@@ -188,7 +188,7 @@ pub unsafe extern "C" fn bp_learn(
     let data = unsafe { std::slice::from_raw_parts(rgba, width * height * 4) };
     let frame = Frame::new(width, height, PixelFormat::Rgba8, data);
     let templates = TEMPLATES.get_or_init(Templates::builtin);
-    let codes = buffer_codes(&frame, &followed.reading, templates, &Gate::default());
+    let codes = followed.final_codes(&frame, templates, &Gate::default());
     let learnt = codes.as_ref().and_then(|codes| followed.learn(codes, matcher));
     out(serde_json::json!({ "status": "ok", "codes": codes, "learnt": learnt }).to_string())
 }

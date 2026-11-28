@@ -1,9 +1,10 @@
 //! Following a breach as it is played: the picks seen so far, the daemons the game has settled, and the route that fits them.
 
+use crate::glyph::{Gate, Templates};
 use crate::image::Frame;
 use crate::plan::{plan_from, PlanOptions, Priority, Route};
 use crate::progress::{self, advance, Fate, Look as Seen};
-use crate::reader::Reading;
+use crate::reader::{buffer_codes, Reading};
 use crate::solver::{uploaded_by, Matcher};
 use serde::{Deserialize, Serialize};
 
@@ -172,15 +173,59 @@ impl Followed {
         }
     }
 
-    /// Holds what the game installed against what each rule still in play predicts for the codes that ended up in the buffer. `None` while a daemon is unsettled, or when the codes do not start with the picks that were seen.
-    pub fn learn(&self, codes: &[u8], known: Option<Matcher>) -> Option<Learnt> {
-        let sequences = &self.reading.sequences;
-        if codes.is_empty() || codes.len() > 16 || !self.over() {
+    /// The codes left in the buffer, read from a frame of the screen that follows the breach. `None` unless that frame shows the same bars over the daemons as when the breach ended, and a buffer that reads with confidence.
+    pub fn final_codes(
+        &self,
+        frame: &Frame,
+        templates: &Templates,
+        gate: &Gate,
+    ) -> Option<Vec<u8>> {
+        let seen = progress::look(frame, &self.reading.geometry, self.reading.buffer);
+        if !self.over() || seen.fates != self.fates {
             return None;
         }
-        let seen: Option<Vec<u8>> =
-            self.played.iter().map(|&c| self.reading.matrix.get(c).copied()).collect();
-        if !codes.starts_with(&seen?) {
+        buffer_codes(frame, &self.reading, templates, gate).filter(|codes| !codes.is_empty())
+    }
+
+    /// Whether these codes can have been played: the picks that were seen, then cells that follow the rules of the matrix and hold the codes that come after.
+    fn playable(&self, codes: &[u8]) -> bool {
+        let (n, matrix) = (self.reading.n, &self.reading.matrix);
+        if self.played.len() > codes.len() || self.played.iter().any(|&c| c >= matrix.len()) {
+            return false;
+        }
+        if self.played.iter().zip(codes).any(|(&c, &code)| matrix[c] != code) {
+            return false;
+        }
+        fn go(n: usize, matrix: &[u8], codes: &[u8], used: &mut Vec<usize>) -> bool {
+            let k = used.len();
+            if k == codes.len() {
+                return true;
+            }
+            // the first pick comes from the top row, then columns and rows take turns
+            let line: Vec<usize> = match used.last() {
+                None => (0..n).collect(),
+                Some(&last) if k % 2 == 1 => (0..n).map(|r| r * n + last % n).collect(),
+                Some(&last) => (0..n).map(|c| last / n * n + c).collect(),
+            };
+            for cell in line {
+                if matrix[cell] == codes[k] && !used.contains(&cell) {
+                    used.push(cell);
+                    if go(n, matrix, codes, used) {
+                        return true;
+                    }
+                    used.pop();
+                }
+            }
+            false
+        }
+        go(n, matrix, codes, &mut self.played.clone())
+    }
+
+    /// Holds what the game installed against what each rule still in play predicts for the codes that ended up in the buffer. `None` while a daemon is unsettled, or when the codes cannot have been played after the picks that were seen.
+    pub fn learn(&self, codes: &[u8], known: Option<Matcher>) -> Option<Learnt> {
+        let sequences = &self.reading.sequences;
+        let fits_buffer = !codes.is_empty() && codes.len() <= self.reading.buffer.max(1);
+        if !fits_buffer || !self.over() || !self.playable(codes) {
             return None;
         }
         let installed = self
@@ -326,9 +371,9 @@ mod tests {
 
     #[test]
     fn a_finished_breach_tells_the_rules_apart() {
-        // A A B against the codes A A A B: only a rule that keeps overlapping codes uploads it
+        // A A B against the codes A A A B, picked down column 1, along row 2 and down column 2: only a rule that keeps overlapping codes uploads it
         let mut f = followed();
-        f.reading.matrix = vec![0, 0, 1, 0, 0, 1, 0, 0, 1];
+        f.reading.matrix = vec![0, 2, 2, 0, 0, 2, 2, 1, 2];
         f.reading.sequences = vec![vec![0, 0, 1]];
         let codes = [0, 0, 0, 1];
         assert_eq!(
@@ -347,15 +392,21 @@ mod tests {
             Some(Learnt::Narrowed(Matcher::Strict))
         );
         assert_eq!(f.learn(&codes, Some(Matcher::Substring)), Some(Learnt::Contradicted));
-        // codes every rule reads alike tell nothing
-        f.fates = vec![Fate::Installed];
-        assert_eq!(f.learn(&[0, 0, 1], None), Some(Learnt::Nothing));
-        // the codes have to start with the picks that were seen
-        f.played = vec![2];
+        // the picks that were seen have to be the start of what was played
+        f.played = vec![0, 3];
+        assert_eq!(f.learn(&codes, None), Some(Learnt::Narrowed(Matcher::NotSubstring)));
+        f.played = vec![1];
+        assert_eq!(f.learn(&codes, None), None);
+        // codes that cannot be picked in this matrix are a misreading: row 2 holds no B
+        f.played = vec![];
         assert_eq!(f.learn(&[0, 0, 1], None), None);
-        f.played = vec![0, 1];
-        assert_eq!(f.learn(&[0, 0, 1], None), Some(Learnt::Nothing));
+        // nor can more codes be played than the buffer holds
+        assert_eq!(f.learn(&[0, 0, 0, 1, 2], None), None);
         assert_eq!(f.learn(&[], None), None);
+        // codes every rule reads alike tell nothing
+        f.reading.sequences = vec![vec![0, 0]];
+        f.fates = vec![Fate::Installed];
+        assert_eq!(f.learn(&[0, 0], None), Some(Learnt::Nothing));
     }
 
     #[test]
