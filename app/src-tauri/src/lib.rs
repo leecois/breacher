@@ -109,6 +109,10 @@ struct Shell {
     tray: AtomicBool,
     /// The player asked for the next breach to be spent on checking the wrong-pick rule.
     checking: AtomicBool,
+    /// A route is up and its breach is being followed: the watch for new breaches rests meanwhile.
+    following: AtomicBool,
+    /// Held while a frame is taken and answered, so that a hotkey capture and the watch do not cross.
+    capturing: Mutex<()>,
 }
 
 #[derive(Clone, Serialize)]
@@ -320,14 +324,48 @@ fn clear_overlay(app: &AppHandle) {
     let _ = app.emit_to("overlay", "clear", ());
 }
 
+/// Puts the overlay back above the game: a game that keeps itself on top covers it each time it comes to the front.
+fn raise_overlay(app: &AppHandle) {
+    #[cfg(windows)]
+    if let Some(handle) = app.get_webview_window("overlay").and_then(|o| o.hwnd().ok()) {
+        breach_capture::stack::raise(handle.0 as isize);
+    }
+    #[cfg(not(windows))]
+    let _ = app;
+}
+
+/// Whether the overlay could be raised and whether the system counts it among the windows that stay on top, for the self-test.
+fn overlay_stack(app: &AppHandle) -> String {
+    #[cfg(windows)]
+    if let Some(handle) = app.get_webview_window("overlay").and_then(|o| o.hwnd().ok()) {
+        let window = handle.0 as isize;
+        let raised = breach_capture::stack::raise(window);
+        return format!(
+            "raised {raised}, stays on top {:?}",
+            breach_capture::stack::topmost(window)
+        );
+    }
+    let _ = app;
+    "not tried".to_string()
+}
+
+/// Starts a new answer: whatever route was up is no longer the one that is followed.
+fn begin(app: &AppHandle) -> u64 {
+    let shell = app.state::<Shell>();
+    let generation = shell.generation.fetch_add(1, Ordering::SeqCst) + 1;
+    *shell.followed.lock().unwrap() = None;
+    shell.following.store(false, Ordering::SeqCst);
+    clear_overlay(app);
+    generation
+}
+
 /// Capture the game, read it, show the route in the main window and over the game.
 fn run_capture(app: &AppHandle) {
     let shell = app.state::<Shell>();
+    let _one = shell.capturing.lock().unwrap_or_else(|e| e.into_inner());
     let settings = shell.settings.lock().unwrap().clone();
-    let generation = shell.generation.fetch_add(1, Ordering::SeqCst) + 1;
-    *shell.followed.lock().unwrap() = None;
+    let generation = begin(app);
     // our own drawing must not be in the frame (it would be when a whole display is captured)
-    clear_overlay(app);
     if !matches!(settings.target, Target::Window(_)) {
         std::thread::sleep(Duration::from_millis(60));
     }
@@ -355,6 +393,19 @@ fn run_capture(app: &AppHandle) {
             return;
         }
     };
+    present(app, cap, started, generation, &settings, true);
+}
+
+/// Shows what a captured frame came to: the answer in the window, and the route over the game. A frame the player asked for also says over the game why it was not read.
+fn present(
+    app: &AppHandle,
+    cap: breach_capture::Captured,
+    started: Instant,
+    generation: u64,
+    settings: &Settings,
+    asked: bool,
+) {
+    let shell = app.state::<Shell>();
     let (x, y, sw, sh, logical) =
         (cap.x, cap.y, cap.screen_width, cap.screen_height, cap.logical_units);
     if let Some(program) = cap.program {
@@ -367,13 +418,14 @@ fn run_capture(app: &AppHandle) {
     log(
         &shell,
         &format!(
-            "captured {} in {:.1} ms: {}x{} px, on screen at ({x}, {y}) size {sw}x{sh} ({}){}",
+            "captured {} in {:.1} ms: {}x{} px, on screen at ({x}, {y}) size {sw}x{sh} ({}){}{}",
             cap.source,
             cap.capture_ms,
             cap.width,
             cap.height,
             if logical { "points" } else { "pixels" },
-            if cap.fallback { "; no game window found" } else { "" }
+            if cap.fallback { "; no game window found" } else { "" },
+            if cap.topmost == Some(true) { "; the window keeps itself on top" } else { "" }
         ),
     );
     let lost = cap.fallback.then(|| {
@@ -387,67 +439,88 @@ fn run_capture(app: &AppHandle) {
     if !settings.overlay {
         return;
     }
-    if let Some(overlay) = app.get_webview_window("overlay") {
-        if logical {
-            let _ = overlay.set_position(LogicalPosition::new(x as f64, y as f64));
-            let _ = overlay.set_size(LogicalSize::new(sw as f64, sh as f64));
-        } else {
-            let _ = overlay.set_position(PhysicalPosition::new(x, y));
-            let _ = overlay.set_size(PhysicalSize::new(sw, sh));
-        }
-        let _ = overlay.set_ignore_cursor_events(true);
-        if !overlay.is_visible().unwrap_or(false) {
-            let _ = overlay.show();
-        }
-        let (reading, plan) = match &response {
-            Response::Ok { reading, plan } => (reading, plan),
-            Response::Rejected { hint, .. } => {
-                // nothing else tells a player inside the game that the capture came to nothing
-                let _ = app.emit_to("overlay", "notice", hint.clone());
-                let app = app.clone();
-                std::thread::spawn(move || {
-                    std::thread::sleep(NOTICE);
-                    if app.state::<Shell>().generation.load(Ordering::SeqCst) == generation {
-                        clear_overlay(&app);
-                    }
-                });
-                return;
-            }
-        };
-        // a rule check takes the place of the route: its picks are the ones to play
-        let check = told.check.is_some();
-        let route = told.check.map_or_else(|| plan.route.clone(), |c| c.route);
-        if again.is_some() {
-            let followed = follow::Followed::new(reading.clone(), route.clone(), check);
-            *shell.followed.lock().unwrap() = Some((followed, response.clone(), meta.clone()));
-        }
-        let route = Some(route);
-        let _ = app.emit_to(
-            "overlay",
-            "route",
-            OverlayPayload { response: response.clone(), frame: meta, route, check },
-        );
-        if check {
-            log(&shell, "the route drawn is a rule check");
-        }
-        log(
-            &shell,
-            match &again {
-                Some(_) => "route drawn over the game, up until the breach screen closes",
-                None => "route drawn over the game, up for a fixed time",
-            },
-        );
+    let Some(overlay) = app.get_webview_window("overlay") else { return };
+    if matches!(response, Response::Rejected { .. }) && !asked {
+        return;
+    }
+    if logical {
+        let _ = overlay.set_position(LogicalPosition::new(x as f64, y as f64));
+        let _ = overlay.set_size(LogicalSize::new(sw as f64, sh as f64));
+    } else {
+        let _ = overlay.set_position(PhysicalPosition::new(x, y));
+        let _ = overlay.set_size(PhysicalSize::new(sw, sh));
+    }
+    let _ = overlay.set_ignore_cursor_events(true);
+    if !overlay.is_visible().unwrap_or(false) {
+        let _ = overlay.show();
+    }
+    raise_overlay(app);
+    let ours = {
         let app = app.clone();
-        std::thread::spawn(move || match again {
-            Some(game) => follow_breach(&app, &game, generation),
-            None => {
-                std::thread::sleep(Duration::from_secs(settings.overlay_seconds.max(3)));
-                if app.state::<Shell>().generation.load(Ordering::SeqCst) == generation {
+        move || app.state::<Shell>().generation.load(Ordering::SeqCst) == generation
+    };
+    let (reading, plan) = match &response {
+        Response::Ok { reading, plan } => (reading, plan),
+        Response::Rejected { hint, .. } => {
+            // nothing else tells a player inside the game that the capture came to nothing
+            let _ = app.emit_to("overlay", "notice", hint.clone());
+            let app = app.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(NOTICE);
+                if ours() {
                     clear_overlay(&app);
                 }
-            }
-        });
+            });
+            return;
+        }
+    };
+    // a rule check takes the place of the route: its picks are the ones to play
+    let check = told.check.is_some();
+    let route = told.check.map_or_else(|| plan.route.clone(), |c| c.route);
+    if again.is_some() {
+        let followed = follow::Followed::new(reading.clone(), route.clone(), check);
+        *shell.followed.lock().unwrap() = Some((followed, response.clone(), meta.clone()));
     }
+    let route = Some(route);
+    let _ = app.emit_to(
+        "overlay",
+        "route",
+        OverlayPayload { response: response.clone(), frame: meta, route, check },
+    );
+    if check {
+        log(&shell, "the route drawn is a rule check");
+    }
+    log(
+        &shell,
+        match &again {
+            Some(_) => "route drawn over the game, up until the breach screen closes",
+            None => "route drawn over the game, up for a fixed time",
+        },
+    );
+    let app = app.clone();
+    let seconds = settings.overlay_seconds.max(3);
+    std::thread::spawn(move || match again {
+        Some(game) => {
+            let shell = app.state::<Shell>();
+            if ours() {
+                shell.following.store(true, Ordering::SeqCst);
+            }
+            follow_breach(&app, &game, generation);
+            if ours() {
+                shell.following.store(false, Ordering::SeqCst);
+            }
+        }
+        None => {
+            let until = Instant::now() + Duration::from_secs(seconds);
+            while Instant::now() < until && ours() {
+                raise_overlay(&app);
+                std::thread::sleep(Duration::from_millis(500));
+            }
+            if ours() {
+                clear_overlay(&app);
+            }
+        }
+    });
 }
 
 /// Tells the overlay and the main window how the followed route now stands.
@@ -508,6 +581,7 @@ fn follow_breach(app: &AppHandle, game: &breach_capture::Source, generation: u64
         if !ours() {
             return None;
         }
+        raise_overlay(app);
         let look = match game.grab() {
             Ok(cap) => {
                 let frame = Frame::new(
@@ -677,17 +751,15 @@ fn set_overlay(app: AppHandle, shell: State<Shell>, enabled: bool) -> ShellStatu
     shell.settings.lock().unwrap().overlay = enabled;
     save(&shell);
     if !enabled {
-        dismiss_overlay(app, shell.clone());
+        dismiss_overlay(app);
     }
     status_of(&shell)
 }
 
 /// Wipes the route from the game and ends any watch that would have done it later.
 #[tauri::command]
-fn dismiss_overlay(app: AppHandle, shell: State<Shell>) {
-    shell.generation.fetch_add(1, Ordering::SeqCst);
-    *shell.followed.lock().unwrap() = None;
-    clear_overlay(&app);
+fn dismiss_overlay(app: AppHandle) {
+    begin(&app);
 }
 
 /// The window says which route it shows and under which choices, so that picks are followed against that one.
@@ -990,6 +1062,8 @@ pub fn run() {
                 version: app.package_info().version.to_string(),
                 tray: AtomicBool::new(false),
                 checking: AtomicBool::new(false),
+                following: AtomicBool::new(false),
+                capturing: Mutex::new(()),
             });
             let tray = add_tray(app.handle());
             app.state::<Shell>().tray.store(tray.is_ok(), Ordering::SeqCst);
@@ -1098,8 +1172,9 @@ pub fn run() {
                                 let back = set_target(handle.state(), Target::Auto).target;
                                 format!("{} windows, {} displays, display 1 {grabbed}, back to {back:?}", found.windows.len(), found.displays.len())
                             };
+                            let stack = overlay_stack(&handle);
                             format!(
-                                "selftest: {summary} | frame {}x{} | {:.1} ms | hotkey: {} | windows: main={} overlay={} | capture permission: {:?} | frame url: {} | update: {update} | version the system reports for this program: {own} | report: {report} | start at sign-in: {autostart} | rule check: {check} | capture targets: {targets}",
+                                "selftest: {summary} | frame {}x{} | {:.1} ms | hotkey: {} | windows: main={} overlay={} | capture permission: {:?} | frame url: {} | update: {update} | version the system reports for this program: {own} | report: {report} | start at sign-in: {autostart} | rule check: {check} | capture targets: {targets} | overlay: {stack}",
                                 meta.width,
                                 meta.height,
                                 started.elapsed().as_secs_f32() * 1e3,
