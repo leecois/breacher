@@ -1,10 +1,10 @@
 // Screen sharing in a plain browser: the page watches the shared window or screen, reads each breach as it opens and follows the picks.
-import { follow } from './core'
+import { follow, learn, type Following } from './core'
 import { desktop } from './desktop'
 import { $ } from './dom'
 import { canFloat, closeFloat, isFloating, openFloat, paintFloat } from './float'
 import { daemonNames, status } from './render'
-import { attachImage, followed, readPixels, showRead } from './session'
+import { attachImage, followed, learnt, readPixels, showRead } from './session'
 import { shownRoute, state } from './state'
 import type { Fate, FrameInfo, Response } from './types'
 
@@ -19,6 +19,8 @@ const AT_REST = 3
 const CHANGED = 4
 /** Looks after which the picture is tried whatever it looks like, in case its coming to rest was missed. */
 const ANYWAY = 15
+/** Looks given to the screen that follows a breach for its buffer to read the same twice. */
+const SETTLE = 12
 
 interface Sharing {
   stream: MediaStream
@@ -51,6 +53,8 @@ let live: FrameInfo | null = null
 let played: number[] = []
 let fates: Fate[] = []
 let gone = 0
+/** A breach that is over, while the screen after it is read for what it tells about the wrong-pick rule. */
+let ending: { breach: Following; words: string; codes: string | null; left: number } | null = null
 
 const full = document.createElement('canvas')
 const small = document.createElement('canvas')
@@ -116,6 +120,7 @@ function watch(words: string, again = true): void {
   played = []
   fates = []
   gone = 0
+  ending = null
   tried = again ? null : last
   unconfirmed = null
   say(words)
@@ -172,19 +177,8 @@ async function look(): Promise<void> {
   if (!image) return
   // a picture of another size is not the screen that was read
   const same = image.width === live.width && image.height === live.height
-  const seen = same
-    ? await follow(image.data, image.width, image.height, {
-        reading,
-        route,
-        check: Boolean(state.check),
-        wanted: state.wanted.length ? state.wanted : null,
-        buffer: state.buffer,
-        played,
-        fates,
-        priority: state.priority,
-        matcher: state.matcher,
-      })
-    : null
+  const breach: Following = { reading, route, check: Boolean(state.check), wanted: state.wanted.length ? state.wanted : null, buffer: state.buffer, played, fates, priority: state.priority, matcher: state.matcher }
+  const seen = same ? await follow(image.data, image.width, image.height, breach) : null
   if (state.frame !== live) return
   if (!seen || seen.sight === 'other') {
     gone++
@@ -196,10 +190,39 @@ async function look(): Promise<void> {
   played = seen.played
   fates = seen.fates
   if (seen.step) followed(seen.route, seen.step === 'replanned')
-  if (seen.sight === 'over') return watch(outcomeWords())
+  if (seen.sight === 'over') {
+    // the route has done its work; the screen that follows is read for what it tells about the rule
+    const words = outcomeWords()
+    say(words)
+    ending = { breach: { ...breach, route: seen.route, played, fates }, words, codes: null, left: SETTLE }
+    live = null
+    return
+  }
   if (seen.step) {
     const [done, picks] = [seen.route.done ?? 0, seen.route.steps.length]
     say(seen.step === 'replanned' ? `Off the route after ${played.length} ${played.length === 1 ? 'pick' : 'picks'}. The rest is planned again.` : done >= picks ? `All ${picks} picks made.` : `Pick ${done} seen. Pick ${done + 1} of ${picks} is next.`)
+  }
+}
+
+/** Reads the buffer of a breach that is over until it reads the same twice, then takes in what that tells about the wrong-pick rule. */
+async function settle(): Promise<void> {
+  if (!ending) return
+  const image = pixels()
+  const made = image ? await learn(image.data, image.width, image.height, ending.breach) : null
+  if (!ending) return
+  const codes = made?.codes?.length ? JSON.stringify(made.codes) : null
+  if (codes === null || codes !== ending.codes) {
+    ending.codes = codes
+    if (--ending.left <= 0) watch(ending.words)
+    return
+  }
+  const { words } = ending
+  const found = made?.learnt
+  if (found?.kind === 'narrowed') {
+    await learnt(found.rule)
+    watch(`${words} It also told something about the wrong-pick rule: see the Plan panel.`)
+  } else {
+    watch(words)
   }
 }
 
@@ -207,6 +230,7 @@ async function tick(): Promise<void> {
   if (busy || !sharing) return
   busy = true
   try {
+    if (ending) return await settle()
     if (live) return await look()
     if (!$<HTMLInputElement>('live-auto').checked) return
     const now = glance()
@@ -272,6 +296,7 @@ function stop(): void {
   was.stream.getTracks().forEach(track => track.stop())
   $<HTMLVideoElement>('live-view').srcObject = null
   live = null
+  ending = null
   last = null
   tried = null
   unconfirmed = null

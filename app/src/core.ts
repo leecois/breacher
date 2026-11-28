@@ -1,5 +1,5 @@
 // The reader and solver, compiled to WebAssembly. Bytes in, JSON out (see crates/breach-wasm).
-import type { Fate, Looked, Matcher, PlanOptions, Priority, Reading, Response, Route, RuleCheck } from './types'
+import type { Fate, Learnt, Looked, Matcher, PlanOptions, Priority, Reading, Response, Route, RuleCheck } from './types'
 
 interface Exports {
   memory: WebAssembly.Memory
@@ -9,6 +9,7 @@ interface Exports {
   bp_plan(reading: number, readingLen: number, opts: number, optsLen: number): number
   bp_check(reading: number, readingLen: number, opts: number, optsLen: number): number
   bp_follow(rgba: number, width: number, height: number, state: number, stateLen: number): number
+  bp_learn(rgba: number, width: number, height: number, state: number, stateLen: number): number
 }
 
 let instance: Promise<Exports> | null = null
@@ -107,6 +108,20 @@ export async function follow(rgba: Uint8Array | Uint8ClampedArray, width: number
   try {
     const looked = take<Looked & { status: string }>(x, x.bp_follow(p, width, height, s, slen))
     return looked.status === 'ok' ? looked : null
+  } finally {
+    x.bp_free(p, len)
+    x.bp_free(s, slen)
+  }
+}
+
+/** Read what ended up in the buffer from the screen that follows a breach, and what that says about the rule; `codes` is null while the buffer cannot be read. */
+export async function learn(rgba: Uint8Array | Uint8ClampedArray, width: number, height: number, state: Following): Promise<{ codes: number[] | null; learnt: Learnt | null }> {
+  const x = await load()
+  const [p, len] = put(x, rgba)
+  const [s, slen] = put(x, encoder.encode(JSON.stringify(state)))
+  try {
+    const made = take<{ status: string; codes: number[] | null; learnt: Learnt | null }>(x, x.bp_learn(p, width, height, s, slen))
+    return made.status === 'ok' ? { codes: made.codes, learnt: made.learnt } : { codes: null, learnt: null }
   } finally {
     x.bp_free(p, len)
     x.bp_free(s, slen)

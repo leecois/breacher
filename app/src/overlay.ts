@@ -26,11 +26,26 @@ function say(text: string): void {
   notice.hidden = false
 }
 
+// the breach the shell has a route up for: the main window may redraw that one, but not put a route up on its own
+let up: string | null = null
+
+const breachOf = (p: OverlayPayload): string | null => (p.response.status === 'ok' && p.route ? JSON.stringify([p.response.reading.matrix, p.response.reading.sequences]) : null)
+
 if ('__TAURI_INTERNALS__' in window) {
   void import('@tauri-apps/api/event').then(({ listen }) => {
-    void listen<OverlayPayload>('route', e => paint(e.payload))
-    void listen<string>('notice', e => say(e.payload))
+    void listen<OverlayPayload>('route', e => {
+      up = breachOf(e.payload)
+      paint(e.payload)
+    })
+    void listen<OverlayPayload>('redraw', e => {
+      if (up !== null && breachOf(e.payload) === up) paint(e.payload)
+    })
+    void listen<string>('notice', e => {
+      up = null
+      say(e.payload)
+    })
     void listen('clear', () => {
+      up = null
       svg.replaceChildren()
       notice.hidden = true
     })

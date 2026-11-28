@@ -4,7 +4,7 @@ import { $ } from './dom'
 import { paintFloat } from './float'
 import { render, renderRejected, ruleFinding, status, type Hooks } from './render'
 import { planOptions, remembered, shownRoute, state } from './state'
-import { settled, type FrameInfo, type Outcome, type Response, type Route, type RuleCheck } from './types'
+import { settled, type FrameInfo, type Matcher, type Outcome, type Response, type Route, type RuleCheck } from './types'
 
 const stage = $<HTMLElement>('stage')
 
@@ -150,6 +150,20 @@ export async function setChecking(on: boolean): Promise<void> {
     redraw(false)
     publish({ status: 'ok', reading: state.reading, plan: state.plan }, state.frame)
   }
+}
+
+/** Takes in what a breach that was played showed about the wrong-pick rule, and plans with it from now on. */
+export async function learnt(rule: Matcher): Promise<void> {
+  state.check = null
+  state.matcher = rule
+  remembered.matcher = rule
+  $<HTMLSelectElement>('matcher').value = rule
+  state.ruleNote = `Seen in the breach you just played. ${ruleFinding(rule, state.checking ? undefined : 'Routes still work under both rules that remain.')}`
+  if (settled(rule) && state.checking) {
+    state.checking = false
+    desktop?.setChecking(false)
+  }
+  await planAgain()
 }
 
 /** Takes in how a rule check turned out and plans again with what it showed. */

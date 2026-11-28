@@ -66,8 +66,8 @@ export interface UpdateInfo {
 }
 
 export interface Desktop {
-  /** `onGame` hears the version of the game each time a capture finds its window, `onProgress` each pick seen in it. */
-  start(onAnswer: (a: AnswerEvent) => void, onGame: (version: string) => void, onProgress: (p: ProgressEvent) => void): Promise<ShellStatus>
+  /** `onGame` hears the version of the game each time a capture finds its window, `onProgress` each pick seen in it, `onRule` what a breach that was played showed about the wrong-pick rule. */
+  start(onAnswer: (a: AnswerEvent) => void, onGame: (version: string) => void, onProgress: (p: ProgressEvent) => void, onRule: (rule: Matcher) => void): Promise<ShellStatus>
   /** Say which route the window shows and under which choices, so that picks are followed against that one. */
   follow(route: Route, wanted: boolean[] | null, buffer: number | null, check: boolean): void
   status(): Promise<ShellStatus>
@@ -113,11 +113,12 @@ function make(): Desktop {
   const core = import('@tauri-apps/api/core')
   const event = import('@tauri-apps/api/event')
   return {
-    async start(onAnswer, onGame, onProgress) {
+    async start(onAnswer, onGame, onProgress, onRule) {
       const { listen } = await event
       await listen<AnswerEvent>('answer', e => onAnswer(e.payload))
       await listen<string>('game-version', e => onGame(e.payload))
       await listen<ProgressEvent>('progress', e => onProgress(e.payload))
+      await listen<Matcher>('rule', e => onRule(e.payload))
       const { invoke } = await core
       return invoke<ShellStatus>('status')
     },
@@ -130,7 +131,8 @@ function make(): Desktop {
       await invoke('capture')
     },
     publish(payload) {
-      void event.then(({ emitTo }) => emitTo('overlay', 'route', payload)).catch(() => undefined)
+      // a redraw: the overlay takes it only while the shell has a route up there
+      void event.then(({ emitTo }) => emitTo('overlay', 'redraw', payload)).catch(() => undefined)
     },
     follow(route, wanted, buffer, check) {
       void core.then(({ invoke }) => invoke('shown_route', { route, wanted, buffer, check })).catch(() => undefined)

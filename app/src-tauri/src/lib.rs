@@ -9,11 +9,12 @@ mod watch;
 use base64::Engine;
 use breach_capture::{CaptureError, Permission, Target};
 use breach_core::api::{self, Response};
-use breach_core::glyph::Templates;
+use breach_core::follow::Learnt;
+use breach_core::glyph::{Gate, Templates};
 use breach_core::image::{Frame, PixelFormat};
 use breach_core::plan::{rule_check, PlanOptions, Priority, Route, RuleCheck};
 use breach_core::progress;
-use breach_core::reader::{ReadOptions, Stage};
+use breach_core::reader::{buffer_codes, ReadOptions, Stage};
 use breach_core::solver::Matcher;
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
@@ -698,7 +699,7 @@ fn follow_breach(app: &AppHandle, game: &breach_capture::Source, generation: u64
         log(&shell, &outcome);
     }
     if let Some(why) = why.filter(|_| ours()) {
-        *shell.followed.lock().unwrap() = None;
+        let ended = shell.followed.lock().unwrap().take().map(|(followed, ..)| followed);
         clear_overlay(app);
         log(
             &shell,
@@ -707,6 +708,59 @@ fn follow_breach(app: &AppHandle, game: &breach_capture::Source, generation: u64
                 started.elapsed().as_secs_f32()
             ),
         );
+        if let Some(ended) = ended.filter(follow::Followed::over) {
+            learn_rule(app, game, &ended, &ours);
+        }
+    }
+}
+
+/// Looks at the screen that follows a breach until the buffer reads the same twice, then holds what the game installed against the rules still in play.
+fn learn_rule(
+    app: &AppHandle,
+    game: &breach_capture::Source,
+    ended: &follow::Followed,
+    ours: &dyn Fn() -> bool,
+) {
+    let shell = app.state::<Shell>();
+    let mut last: Option<Vec<u8>> = None;
+    let mut codes = None;
+    for _ in 0..8 {
+        if !ours() {
+            return;
+        }
+        let Ok(cap) = game.grab() else { break };
+        let (w, h) = (cap.width as usize, cap.height as usize);
+        let frame = Frame::new(w, h, PixelFormat::Rgba8, &cap.rgba);
+        let read = buffer_codes(&frame, &ended.reading, &shell.templates, &Gate::default())
+            .filter(|codes| !codes.is_empty());
+        if read.is_some() && read == last {
+            codes = read;
+            break;
+        }
+        last = read;
+        std::thread::sleep(follow::INTERVAL / 2);
+    }
+    let Some(codes) = codes else {
+        log(&shell, "the buffer could not be read after the breach: nothing learnt about the rule");
+        return;
+    };
+    let names: Vec<&str> = codes.iter().map(|&c| breach_core::CODES[c as usize]).collect();
+    let known = shell.settings.lock().unwrap().matcher;
+    match ended.learn(&codes, known) {
+        Some(Learnt::Narrowed(rule)) => {
+            log(&shell, &format!("buffer {}: the wrong-pick rule is now {rule:?} (was {known:?})", names.join(" ")));
+            shell.settings.lock().unwrap().matcher = Some(rule);
+            save(&shell);
+            let _ = app.emit_to("main", "rule", rule);
+        }
+        Some(Learnt::Nothing) => {
+            log(&shell, &format!("buffer {}: every rule still in play predicts this result", names.join(" ")));
+        }
+        Some(Learnt::Contradicted) => log(
+            &shell,
+            &format!("buffer {}: no rule still in play ({known:?}) predicts this result, so nothing is concluded", names.join(" ")),
+        ),
+        None => log(&shell, &format!("buffer {}: it does not fit the picks that were seen", names.join(" "))),
     }
 }
 

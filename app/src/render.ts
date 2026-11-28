@@ -18,10 +18,10 @@ const RULE_WORDS: Record<string, string> = {
   strict: 'resets the sequence and is itself lost',
 }
 
-/** What a rule check found, in words: the rule it settled, or the one it ruled out. */
-export function ruleFinding(known: Matcher): string {
+/** What was found out about the rule, in words: the rule that is settled, or the one that is ruled out, and `then` what happens about the two that remain. */
+export function ruleFinding(known: Matcher, then = 'The next breach goes on with the check.'): string {
   if (settled(known)) return `Settled: a wrong pick ${RULE_WORDS[known]}. If routes ever fail to upload what they say, set this back to "Not confirmed yet".`
-  return `Ruled out: a wrong pick ${RULE_WORDS[known.replace('not_', '')]}. The next breach goes on with the check.`
+  return `Ruled out: a wrong pick ${RULE_WORDS[known.replace('not_', '')]}. ${then}`
 }
 
 const ms = (v: number): string => (v < 1 ? 'under 1 ms' : v >= 10 ? `${v.toFixed(0)} ms` : `${v.toFixed(1)} ms`)
@@ -212,7 +212,7 @@ function renderRule(plan: Plan, route: Route, hooks: Hooks): void {
     p.textContent = !route.uploaded.length
       ? 'Nothing can be uploaded with this buffer.'
       : settled(state.matcher)
-        ? 'Planned for the rule you set.'
+        ? 'Planned for the settled rule.'
         : state.matcher
           ? 'This route works under both rules still in play.'
           : 'This route works under all three.'

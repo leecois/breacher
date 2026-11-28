@@ -106,6 +106,9 @@ export interface Looked {
   fates: Fate[]
 }
 
+/** What a finished breach showed about the wrong-pick rule. */
+export type Learnt = { kind: 'nothing' } | { kind: 'narrowed'; rule: Matcher } | { kind: 'contradicted' }
+
 /** What a capture is pointed at: the game found on its own, a window by its title, or a display. */
 export type Target = { kind: 'auto' } | { kind: 'window'; value: string } | { kind: 'display'; value: number }
 
