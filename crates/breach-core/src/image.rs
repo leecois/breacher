@@ -53,6 +53,30 @@ impl<'a> Frame<'a> {
                 >= self.stride * (self.height - 1) + self.width * self.format.bytes_per_pixel()
     }
 
+    /// The frame shrunk to `w x h` brightness values, each the mean of its block sampled every fourth pixel: enough to tell whether the picture changed.
+    pub fn glance(&self, w: usize, h: usize) -> Vec<u8> {
+        let mut out = vec![0u8; w * h];
+        if !self.is_valid() || w == 0 || h == 0 {
+            return out;
+        }
+        for by in 0..h {
+            let (y0, y1) = (by * self.height / h, ((by + 1) * self.height / h).min(self.height));
+            for bx in 0..w {
+                let (x0, x1) = (bx * self.width / w, ((bx + 1) * self.width / w).min(self.width));
+                let (mut sum, mut count) = (0u32, 0u32);
+                for y in (y0..y1.max(y0 + 1).min(self.height)).step_by(4) {
+                    for x in (x0..x1.max(x0 + 1).min(self.width)).step_by(4) {
+                        let [r, g, b] = self.rgb(x, y);
+                        sum += r.max(g).max(b) as u32;
+                        count += 1;
+                    }
+                }
+                out[by * w + bx] = (sum / count.max(1)) as u8;
+            }
+        }
+        out
+    }
+
     /// V plane max-pooled over `d x d` blocks, which keeps thin bright strokes; from `d = 4` up only every second pixel is sampled.
     pub fn v_pooled(&self, d: usize) -> Plane {
         self.v_pooled_with(d, if d >= 4 { 2 } else { 1 })
@@ -129,6 +153,15 @@ impl<'a> Frame<'a> {
         }
         Plane { w, h, data: out }
     }
+}
+
+/// How far apart two glances are: the mean difference per value, out of 255. Glances of different sizes are as far apart as can be.
+pub fn apart(a: &[u8], b: &[u8]) -> f32 {
+    if a.len() != b.len() || a.is_empty() {
+        return 255.0;
+    }
+    let sum: u32 = a.iter().zip(b).map(|(x, y)| x.abs_diff(*y) as u32).sum();
+    sum as f32 / a.len() as f32
 }
 
 /// Owned single-channel image.
@@ -593,6 +626,29 @@ pub fn components(mask: &Plane, bridge: usize) -> Vec<Blob> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_glance_tells_a_changed_picture_from_the_same_one() {
+        let (w, h) = (640, 360);
+        let mut dark = vec![20u8; w * h * 4];
+        let still = Frame::new(w, h, PixelFormat::Rgba8, &dark).glance(48, 27);
+        assert_eq!(still.len(), 48 * 27);
+        assert!(still.iter().all(|v| *v == 20));
+        assert_eq!(apart(&still, &still), 0.0);
+        // a panel lit over a quarter of the frame moves a quarter of the values by its brightness
+        for y in 0..h / 2 {
+            for x in 0..w / 2 {
+                dark[(y * w + x) * 4 + 1] = 220;
+            }
+        }
+        let lit = Frame::new(w, h, PixelFormat::Rgba8, &dark).glance(48, 27);
+        let d = apart(&still, &lit);
+        assert!((45.0..55.0).contains(&d), "{d}");
+        assert_eq!(apart(&still, &lit[..10]), 255.0);
+        // a frame smaller than the glance still gives one value per block
+        let tiny = [9u8; 4 * 4];
+        assert_eq!(Frame::new(2, 2, PixelFormat::Rgba8, &tiny).glance(4, 4), vec![9; 16]);
+    }
 
     fn noise(w: usize, h: usize, seed: u64) -> Plane {
         let mut s = seed;

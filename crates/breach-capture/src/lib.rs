@@ -1,5 +1,6 @@
 //! One-shot screen capture: finds the game window, checks permission without prompting, reports where the frame sits on screen.
 
+pub mod stack;
 pub mod version;
 
 use serde::{Deserialize, Serialize};
@@ -72,19 +73,51 @@ pub struct Captured {
     pub again: Option<Source>,
     /// The version of the program that was looked for, when the window found is its own.
     pub program: Option<version::Version>,
+    /// Whether the captured window keeps itself above ordinary windows, where the system tells.
+    pub topmost: Option<bool>,
     pub capture_ms: f32,
 }
 
-/// A window that was captured once and can be looked at again without searching for it.
+/// A window that was found once and can be looked at again without searching for it.
 #[derive(Clone)]
-pub struct Source(xcap::Window);
+pub struct Source {
+    window: xcap::Window,
+    /// The window belongs to the program that was looked for and does not merely mention it.
+    own: bool,
+}
 
 impl Source {
     pub fn grab(&self) -> Result<Captured, CaptureError> {
-        if self.0.is_minimized().unwrap_or(true) {
+        if self.window.is_minimized().unwrap_or(true) {
             return Err(CaptureError::Minimised);
         }
-        grab_window(&self.0)
+        grab_window(&self.window, self.own)
+    }
+
+    /// Whether this is the window the player is in: nothing happens on a game that is not in front.
+    pub fn in_front(&self) -> bool {
+        self.window.is_focused().unwrap_or(false)
+    }
+
+    /// The version of the program behind the window, when the window is its own.
+    pub fn program(&self) -> Option<version::Version> {
+        self.own.then(|| self.window.pid().ok().and_then(version::of_process)).flatten()
+    }
+}
+
+/// The window a target names, when it is there and shown; a display is not a window.
+pub fn find(target: &Target) -> Option<Source> {
+    if permission() == Permission::Denied {
+        return None;
+    }
+    let found = match target {
+        Target::Auto => find_window(&GAME_HINTS),
+        Target::Window(name) => find_window(&[name.as_str()]),
+        Target::Display(_) => Search::Missing,
+    };
+    match found {
+        Search::Found(window, own) => Some(Source { window, own }),
+        Search::Minimised | Search::Missing => None,
     }
 }
 
@@ -237,7 +270,7 @@ fn backend(e: xcap::XCapError) -> CaptureError {
     CaptureError::Backend(e.to_string())
 }
 
-fn grab_window(w: &xcap::Window) -> Result<Captured, CaptureError> {
+fn grab_window(w: &xcap::Window, own: bool) -> Result<Captured, CaptureError> {
     let t = Instant::now();
     let img = w.capture_image().map_err(backend)?;
     let title = w.title().unwrap_or_default();
@@ -252,14 +285,15 @@ fn grab_window(w: &xcap::Window) -> Result<Captured, CaptureError> {
         screen_height: w.height().map_err(backend)?,
         logical_units: cfg!(target_os = "macos"),
         fallback: false,
-        again: Some(Source(w.clone())),
+        again: Some(Source { window: w.clone(), own }),
         program: None,
+        topmost: w.id().ok().and_then(|id| stack::topmost(id as isize)),
         capture_ms: t.elapsed().as_secs_f32() * 1e3,
     })
 }
 
 fn grab_found(w: &xcap::Window, own: bool) -> Result<Captured, CaptureError> {
-    let mut captured = grab_window(w)?;
+    let mut captured = grab_window(w, own)?;
     if own {
         captured.program = w.pid().ok().and_then(version::of_process);
     }
@@ -287,6 +321,7 @@ fn grab_display(index: usize) -> Result<Captured, CaptureError> {
         fallback: false,
         again: None,
         program: None,
+        topmost: None,
         capture_ms: t.elapsed().as_secs_f32() * 1e3,
     })
 }
@@ -347,6 +382,12 @@ mod tests {
         assert_eq!((game, unnamed, browser), (Some(0), Some(1), Some(2)));
         assert_eq!(rank("Breacher", "Breacher", &GAME_HINTS), None);
         assert_eq!(rank("x", "CYBERPUNK2077.EXE", &GAME_HINTS), Some(0));
+    }
+
+    #[test]
+    fn a_display_is_not_a_window_to_look_at_again() {
+        assert!(find(&Target::Display(0)).is_none());
+        assert!(find(&Target::Window("no-such-window-7f3a".into())).is_none());
     }
 
     #[test]
